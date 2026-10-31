@@ -1,0 +1,9 @@
+let simple_interest = fn(principal, annual_rate, years) {
+    if (principal < 0) {
+        return 0;
+    }
+    return principal * annual_rate * years;
+};
+let interest = simple_interest(1000000, 0.05, 0.5);
+print(round(interest, 0, "HALF_UP"));
+print(div(1, 3, 6, "HALF_EVEN"));

@@ -1,0 +1,7 @@
+print(round(-2.5, 0, "HALF_EVEN"));
+print(round(-2.5, 0, "HALF_UP"));
+print(round(-2.5, 0, "TOWARD_ZERO"));
+print(round(-2.0, 0, "EXACT"));
+print(format(round(9.995, 2, "HALF_EVEN"), 2));
+print(round(round(1.2451, 3, "HALF_EVEN"), 2, "HALF_EVEN"));
+print(round(1.2451, 2, "HALF_EVEN"));

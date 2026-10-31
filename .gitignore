@@ -1,0 +1,8 @@
+/build/
+/fin
+/fin.exe
+/coverage.out
+*.trace.jsonl
+__pycache__/
+/docs/development/*.diff
+/docs/development/*-brief.md
