@@ -1,8 +1,8 @@
 package eval
 
 import (
-	"example.com/finlang/internal/diagnostic"
 	"fmt"
+	"github.com/Pirite08/finlang/internal/diagnostic"
 )
 
 type Environment struct {

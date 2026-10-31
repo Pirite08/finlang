@@ -1,7 +1,7 @@
 // Package ast defines the source-located syntax tree shared by parser and evaluator.
 package ast
 
-import "example.com/finlang/internal/diagnostic"
+import "github.com/Pirite08/finlang/internal/diagnostic"
 
 type Node interface{ GetSpan() diagnostic.Span }
 type Expr interface {

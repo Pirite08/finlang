@@ -1,0 +1,1 @@
+{"schema_version":"1","rule":"interest_v1","inputs":{"principal":{"currency":"KRW","amount":"1000000"},"annual_rate":"0.05","years":"0.5"}}

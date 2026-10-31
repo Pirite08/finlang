@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/decimal"
-	"example.com/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/diagnostic"
 )
 
 var limits = config.DefaultLimits()

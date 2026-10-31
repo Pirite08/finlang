@@ -1,9 +1,9 @@
 package lexer_test
 
 import (
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/lexer"
-	"example.com/finlang/internal/token"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/lexer"
+	"github.com/Pirite08/finlang/internal/token"
 	"strings"
 	"testing"
 )

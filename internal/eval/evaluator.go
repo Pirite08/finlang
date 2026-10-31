@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"example.com/finlang/internal/ast"
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/decimal"
-	"example.com/finlang/internal/diagnostic"
-	"example.com/finlang/internal/trace"
+	"github.com/Pirite08/finlang/internal/ast"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/trace"
 )
 
 type Options struct {
@@ -19,9 +19,10 @@ type Options struct {
 }
 
 type Evaluator struct {
-	options   Options
-	steps     int
-	callDepth int
+	options       Options
+	steps         int
+	callDepth     int
+	traceSequence int
 }
 
 func New(options Options) *Evaluator {
@@ -120,6 +121,7 @@ func (e *Evaluator) statement(node ast.Stmt, env *Environment) (result outcome, 
 		if !ok {
 			return outcome{}, typeError("if condition", condition)
 		}
+		e.emit(trace.Event{Kind: "branch", Span: node.Condition.GetSpan(), Branch: truth.Inspect()}, []Value{condition}, condition)
 		var branch *ast.Block
 		if truth {
 			branch = node.Consequence
@@ -172,7 +174,9 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		}
 		if node.Operator == "!" {
 			if right, ok := right.(BoolValue); ok {
-				return BoolValue(!bool(right)), nil
+				result := BoolValue(!bool(right))
+				e.emit(trace.Event{Kind: "prefix:!", Span: node.GetSpan()}, []Value{right}, result)
+				return result, nil
 			}
 		}
 		if node.Operator == "-" {
@@ -181,7 +185,9 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 				if err != nil {
 					return nil, err
 				}
-				return DecimalValue{Value: negative}, nil
+				result := DecimalValue{Value: negative}
+				e.emit(trace.Event{Kind: "prefix:-", Span: node.GetSpan()}, []Value{right}, result)
+				return result, nil
 			}
 		}
 		return nil, typeError("prefix "+node.Operator, right)
@@ -194,7 +200,11 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		if err != nil {
 			return nil, err
 		}
-		return e.infix(node.Operator, left, right)
+		result, err := e.infix(node.Operator, left, right)
+		if err == nil {
+			e.emit(trace.Event{Kind: node.Operator, Span: node.GetSpan()}, []Value{left, right}, result)
+		}
+		return result, err
 	case *ast.Function:
 		names := make(map[string]bool, len(node.Parameters))
 		for _, name := range node.Parameters {
@@ -231,6 +241,9 @@ func typeError(operation string, values ...Value) error {
 }
 
 func (e *Evaluator) infix(operator string, left, right Value) (Value, error) {
+	if left.Kind() == KindMoney || right.Kind() == KindMoney {
+		return e.moneyInfix(operator, left, right)
+	}
 	if left.Kind() != right.Kind() {
 		return nil, typeError(operator, left, right)
 	}

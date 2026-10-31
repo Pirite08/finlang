@@ -1,0 +1,3 @@
+let main = fn(a, b, c) {
+    return settle(a + b + c, 2, "HALF_EVEN");
+};

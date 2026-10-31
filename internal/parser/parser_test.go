@@ -1,10 +1,10 @@
 package parser_test
 
 import (
-	"example.com/finlang/internal/ast"
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/diagnostic"
-	"example.com/finlang/internal/parser"
+	"github.com/Pirite08/finlang/internal/ast"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/parser"
 	"strings"
 	"testing"
 )

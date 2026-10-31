@@ -1,19 +1,19 @@
-// Package trace defines the optional event hook. Recording is a later release.
+// Package trace records bounded, deterministic events from actual evaluation.
 package trace
 
-import "example.com/finlang/internal/diagnostic"
+import "github.com/Pirite08/finlang/internal/diagnostic"
 
 type Event struct {
-	Sequence    int
-	Kind        string
-	Span        diagnostic.Span
-	Inputs      []string
-	Result      string
-	Currency    string
-	TargetScale *uint32
-	Mode        string
-	Inexact     bool
-	Branch      string
+	Sequence    int             `json:"sequence"`
+	Kind        string          `json:"kind"`
+	Span        diagnostic.Span `json:"source"`
+	Inputs      []string        `json:"inputs"`
+	Result      string          `json:"result"`
+	Currency    string          `json:"currency,omitempty"`
+	TargetScale *uint32         `json:"target_scale,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	Inexact     bool            `json:"inexact"`
+	Branch      string          `json:"branch,omitempty"`
 }
 
 type Sink interface{ Record(Event) }

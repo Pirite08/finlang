@@ -2,8 +2,8 @@
 package eval
 
 import (
-	"example.com/finlang/internal/ast"
-	"example.com/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/ast"
+	"github.com/Pirite08/finlang/internal/decimal"
 )
 
 type Kind string

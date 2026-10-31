@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/diagnostic"
-	"example.com/finlang/internal/eval"
-	"example.com/finlang/internal/parser"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/eval"
+	"github.com/Pirite08/finlang/internal/parser"
 )
 
 // Run preserves bindings across lines and resets execution budgets for each line.

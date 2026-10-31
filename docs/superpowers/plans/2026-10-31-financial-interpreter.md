@@ -303,12 +303,12 @@ Trace가 nil이면 이벤트용 문자열을 생성하지 않는다. 핵심판�
 
 Money.Div와 Money.Settle의 bool은 Inexact를 나타낸다.
 
-- [ ] TestCurrencyRules에서 같은 통화 덧셈·비교, 다른 통화 거부, 지원하지 않는 통화를 확인한다.
-- [ ] TestMoneyTypeRules에서 Money*Money, Money+Decimal, div(Money,Money,...)를 거부한다.
-- [ ] TestSettlementTiming에서 USD0.335 세 건의 개별 정산 합=1.02와 합산 후 정산=1.00을 각각 확인한다.
-- [ ] TestMoneyFormat에서 숫자값 변경 없이 "USD 1.00"을 표시하고, 자리 부족 시 E_INEXACT인지 확인한다.
-- [ ] money, settle, format_money와 연산자 분기를 연결한다.
-- [ ] Run: go test ./internal/money ./internal/eval
+- [x] TestCurrencyRules에서 같은 통화 덧셈·비교, 다른 통화 거부, 지원하지 않는 통화를 확인한다.
+- [x] TestMoneyTypeRules에서 Money*Money, Money+Decimal, div(Money,Money,...)를 거부한다.
+- [x] TestSettlementTiming에서 USD0.335 세 건의 개별 정산 합=1.02와 합산 후 정산=1.00을 각각 확인한다.
+- [x] TestMoneyFormat에서 숫자값 변경 없이 "USD 1.00"을 표시하고, 자리 부족 시 E_INEXACT인지 확인한다.
+- [x] money, settle, format_money와 연산자 분기를 연결한다.
+- [x] Run: go test ./internal/money ./internal/eval
 
 ## Task 11: JSON 계약과 단일 결과
 
@@ -324,12 +324,12 @@ Money.Div와 Money.Settle의 bool은 Inexact를 나타낸다.
 
 Spec과 JSON 필드는 설계서 §9를 그대로 구현한다. Spec.Parameters 순서로 main을 호출한다. 숫자 값과 범위는 문자열, scale 메타데이터는 정수다.
 
-- [ ] TestContractRoundTrip에서 scale_max=18인 테스트 전용 계약을 사용해 0.100000000000000001과 부호 있는 금액이 float64 변환 없이 보존되는지 확인한다. interest_v1의 이율 입력은 별도로 scale_max=6을 지켜야 한다.
-- [ ] TestStrictJSON에서 숫자 JSON 값, 중복 키, 미지 필드, 누락 값, 과한 소수 자리, 과한 중첩, 1MiB 초과를 거부한다.
-- [ ] TestOutputContract에서 타입·통화 불일치, 출력 자리 부족, 수신 필드 범위 초과를 각각 확인한다.
-- [ ] TestJSONMode에서 stdout 레코드 하나, stderr 진단, print 거부와 종료 0/1/2를 확인한다.
-- [ ] 입력은 제한된 바이트만 읽고 토큰 검사로 중복 키·중첩을 확인한 뒤 알려진 구조로 디코딩한다.
-- [ ] Run: go test ./internal/contract ./internal/cli
+- [x] TestContractRoundTrip에서 scale_max=18인 테스트 전용 계약을 사용해 0.100000000000000001과 부호 있는 금액이 float64 변환 없이 보존되는지 확인한다. interest_v1의 이율 입력은 별도로 scale_max=6을 지켜야 한다.
+- [x] TestStrictJSON에서 숫자 JSON 값, 중복 키, 미지 필드, 누락 값, 과한 소수 자리, 과한 중첩, 1MiB 초과를 거부한다.
+- [x] TestOutputContract에서 타입·통화 불일치, 출력 자리 부족, 수신 필드 범위 초과를 각각 확인한다.
+- [x] TestJSONMode에서 stdout 레코드 하나, stderr 진단, print 거부와 종료 0/1/2를 확인한다.
+- [x] 입력은 제한된 바이트만 읽고 토큰 검사로 중복 키·중첩을 확인한 뒤 알려진 구조로 디코딩한다.
+- [x] Run: go test ./internal/contract ./internal/cli
 
 DecodeInput은 프로그램의 함수를 호출하지 않는다. CLI가 소스를 평가하고 main을 찾아 같은 Evaluator의 Call을 사용해 총 실행 한도를 공유한다.
 
@@ -347,13 +347,13 @@ DecodeInput은 프로그램의 함수를 호출하지 않는다. CLI가 소스�
 
 Header는 프로그램 SHA-256, 계약 버전, 실행기 버전, 입력, 제한 설정을 갖는다. 재현 비교에는 시각·프로세스 ID처럼 달라지는 값을 넣지 않는다.
 
-- [ ] TestTraceRecordsExecutedBranch에서 실제 실행한 조건 분기만 기록하는지 확인한다.
-- [ ] TestTraceRounding에 입력·결과·통화·자리·모드·Inexact·줄번호를 확인한다.
-- [ ] TestTraceDoesNotChangeValue에서 trace 유무와 10,000개 초과 모두 수치 결과가 같은지 확인한다.
-- [ ] TestTraceDeterminism에서 같은 소스·입력·설정의 이벤트 순서와 직렬화 결과를 확인한다.
-- [ ] Task 7의 연결 지점을 채우고 기록을 요청한 CLI의 파일 쓰기 실패는 종료 2로 처리한다.
-- [ ] trace를 요청한 경로의 상위 디렉터리는 호스트 CLI가 생성하고, 기록이 잘렸는지 파일에 표시한다.
-- [ ] Run: go test ./internal/trace ./internal/eval ./internal/cli
+- [x] TestTraceRecordsExecutedBranch에서 실제 실행한 조건 분기만 기록하는지 확인한다.
+- [x] TestTraceRounding에 입력·결과·통화·자리·모드·Inexact·줄번호를 확인한다.
+- [x] TestTraceDoesNotChangeValue에서 trace 유무와 10,000개 초과 모두 수치 결과가 같은지 확인한다.
+- [x] TestTraceDeterminism에서 같은 소스·입력·설정의 이벤트 순서와 직렬화 결과를 확인한다.
+- [x] Task 7의 연결 지점을 채우고 기록을 요청한 CLI의 파일 쓰기 실패는 종료 2로 처리한다.
+- [x] trace를 요청한 경로의 상위 디렉터리는 호스트 CLI가 생성하고, 기록이 잘렸는지 파일에 표시한다.
+- [x] Run: go test ./internal/trace ./internal/eval ./internal/cli
 
 **v0.2 Gate:** Money 오류 예방, JSON 왕복, 명시적 정산, trace 확인이 끝나야 COBOL 비교를 완료 대상으로 삼는다.
 
@@ -436,3 +436,8 @@ GnuCOBOL이 없으면 테스트는 이유를 출력하고 건너뛸 수 있으�
 ## v0.1 실행 결과
 
 v0.1 언어 기능과 숫자 검증을 완료했다. 초기 표현 실험은 문자열에서 유리수로 읽는 방식이며, 문자열 자릿수 직접 산술 비교는 후속으로 남긴다. 실제 결과와 범위는 ../../evaluation/v0.1-verification.md에 기록했다. v0.2/v0.3는 아직 구현하지 않았다.
+
+
+## v0.2 실행 결과
+
+Money·통화·정산·JSON 계약·실제 계산 기록을 구현했다. 전체 96개 최상위 테스트/퍼즈 함수(하위 사례 포함319개), 독립 숫자 회귀 기준, race/vet/build와 실제 실행 파일 검증을 통과했다. 세부 결과: ../../evaluation/v0.2-verification.md. 사용자 요청에 따라 비공개 GitHub 저장소 Pirite08/finlang에 게시하며, COBOL 비교는 v0.3에 남긴다.

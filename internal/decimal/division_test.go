@@ -1,8 +1,8 @@
 package decimal_test
 
 import (
-	"example.com/finlang/internal/decimal"
-	"example.com/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/diagnostic"
 	"strings"
 	"testing"
 )

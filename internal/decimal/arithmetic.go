@@ -1,7 +1,7 @@
 package decimal
 
 import (
-	"example.com/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/config"
 	"math/big"
 )
 

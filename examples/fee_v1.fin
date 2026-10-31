@@ -1,0 +1,6 @@
+let main = fn(amount) {
+    if (amount <= money("KRW", 1000000)) {
+        return settle(amount * 0.001, 0, "HALF_UP");
+    }
+    return settle(money("KRW", 1000) + (amount - money("KRW", 1000000)) * 0.0005, 0, "HALF_UP");
+};

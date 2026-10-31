@@ -1,8 +1,8 @@
 package parser_test
 
 import (
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/parser"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/parser"
 	"strings"
 	"testing"
 )

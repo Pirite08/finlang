@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/finlang/internal/config"
-	"example.com/finlang/internal/diagnostic"
-	"example.com/finlang/internal/parser"
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/parser"
 )
 
 type execution struct {

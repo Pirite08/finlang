@@ -9,11 +9,11 @@ import (
 type Code string
 
 type Span struct {
-	File   string
-	Start  int
-	End    int
-	Line   int
-	Column int
+	File   string `json:"file"`
+	Start  int    `json:"start"`
+	End    int    `json:"end"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
 }
 
 type Error struct {

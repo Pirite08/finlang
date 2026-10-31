@@ -1,0 +1,3 @@
+let main = fn(principal, annual_rate, years) {
+    return settle(principal * annual_rate * years, 0, "HALF_UP");
+};

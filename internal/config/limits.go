@@ -2,14 +2,14 @@
 package config
 
 type Limits struct {
-	MaxCoefficientDigits int
-	MaxScale             uint32
-	MaxTokenBytes        int
-	MaxSourceBytes       int
-	MaxSyntaxDepth       int
-	MaxEvalSteps         int
-	MaxCallDepth         int
-	MaxTraceEvents       int
+	MaxCoefficientDigits int    `json:"max_coefficient_digits"`
+	MaxScale             uint32 `json:"max_scale"`
+	MaxTokenBytes        int    `json:"max_token_bytes"`
+	MaxSourceBytes       int    `json:"max_source_bytes"`
+	MaxSyntaxDepth       int    `json:"max_syntax_depth"`
+	MaxEvalSteps         int    `json:"max_eval_steps"`
+	MaxCallDepth         int    `json:"max_call_depth"`
+	MaxTraceEvents       int    `json:"max_trace_events"`
 }
 
 func DefaultLimits() Limits {

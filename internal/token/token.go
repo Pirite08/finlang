@@ -1,7 +1,7 @@
 // Package token defines lexical tokens with byte offsets and rune columns.
 package token
 
-import "example.com/finlang/internal/diagnostic"
+import "github.com/Pirite08/finlang/internal/diagnostic"
 
 type Kind string
 

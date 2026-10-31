@@ -5,13 +5,14 @@ import (
 	"strconv"
 	"strings"
 
-	"example.com/finlang/internal/decimal"
-	"example.com/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/trace"
 )
 
 func isBuiltin(name string) bool {
 	switch name {
-	case "print", "round", "div", "format":
+	case "print", "round", "div", "format", "money", "settle", "format_money":
 		return true
 	}
 	return false
@@ -21,8 +22,8 @@ func arityError(name string, want, got int) error {
 	return diagnostic.New("E_ARITY", fmt.Sprintf("%s expects %d arguments; received %d", name, want, got))
 }
 
-func (e *Evaluator) builtin(name string, args []Value) (Value, error) {
-	expected := map[string]int{"print": 1, "round": 3, "div": 4, "format": 2}
+func (e *Evaluator) builtin(name string, args []Value, span diagnostic.Span) (Value, error) {
+	expected := map[string]int{"print": 1, "round": 3, "div": 4, "format": 2, "money": 2, "settle": 3, "format_money": 2}
 	if len(args) != expected[name] {
 		return nil, arityError(name, expected[name], len(args))
 	}
@@ -34,6 +35,9 @@ func (e *Evaluator) builtin(name string, args []Value) (Value, error) {
 			return nil, diagnostic.New("E_OUTPUT_IO", err.Error())
 		}
 		return UnitValue{}, nil
+	}
+	if name == "money" || name == "settle" || name == "format_money" || (name == "div" && args[0].Kind() == KindMoney) {
+		return e.moneyBuiltin(name, args, span)
 	}
 	first, ok := args[0].(DecimalValue)
 	if !ok {
@@ -48,7 +52,9 @@ func (e *Evaluator) builtin(name string, args []Value) (Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		return StringValue(formatted), nil
+		result := StringValue(formatted)
+		e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits}, []Value{args[0]}, result)
+		return result, nil
 	}
 	scaleIndex := 1
 	if name == "div" {
@@ -79,7 +85,13 @@ func (e *Evaluator) builtin(name string, args []Value) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	return DecimalValue{Value: rounded.Value}, nil
+	result := DecimalValue{Value: rounded.Value}
+	inputs := []Value{args[0]}
+	if name == "div" {
+		inputs = append(inputs, args[1])
+	}
+	e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits, Mode: string(mode), Inexact: rounded.Inexact}, inputs, result)
+	return result, nil
 }
 
 func (e *Evaluator) scale(value Value) (uint32, error) {

@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"example.com/finlang/internal/decimal"
-	"example.com/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/decimal"
+	"github.com/Pirite08/finlang/internal/diagnostic"
 )
 
 func TestRoundingOracleAgreement(t *testing.T) {

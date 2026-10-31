@@ -1,8 +1,9 @@
 package eval
 
 import (
-	"example.com/finlang/internal/diagnostic"
 	"fmt"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/trace"
 )
 
 // Call shares this evaluator's step and call budget with Run.
@@ -13,7 +14,7 @@ func (e *Evaluator) Call(function Value, args []Value, span diagnostic.Span) (va
 		}
 	}()
 	if builtin, ok := function.(builtinValue); ok {
-		return e.builtin(builtin.name, args)
+		return e.builtin(builtin.name, args, span)
 	}
 	closure, ok := function.(*FunctionValue)
 	if !ok {
@@ -40,5 +41,6 @@ func (e *Evaluator) Call(function Value, args []Value, span diagnostic.Span) (va
 	if !result.returned {
 		return nil, diagnostic.New("E_MISSING_RETURN", "function reached its end without return")
 	}
+	e.emit(trace.Event{Kind: "call", Span: span}, args, result.value)
 	return result.value, nil
 }
