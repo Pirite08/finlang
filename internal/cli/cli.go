@@ -14,7 +14,7 @@ import (
 	"github.com/Pirite08/finlang/internal/repl"
 )
 
-const Version = "v0.2.0"
+const Version = "v0.3.0"
 const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 	"  no arguments  start the single-line REPL\n" +
 	"  -file path    execute a UTF-8 source file\n" +

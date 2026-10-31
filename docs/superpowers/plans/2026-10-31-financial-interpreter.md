@@ -365,16 +365,16 @@ Header는 프로그램 SHA-256, 계약 버전, 실행기 버전, 입력, 제한 
 
 **Produces:** 실행 환경·소스 해시·총 사례 수·오류 수·일치 수·불일치 원인을 담은 JSONL과 보고서.
 
-- [ ] Linux/WSL에서 Go와 cobc 버전을 확인하고 정확한 컴파일 명령을 기록한다.
-- [ ] COBOL의 3개 기준 프로그램에 입력·중간·수신 필드를 고정하고 ON SIZE ERROR를 명시한다.
-- [ ] 표준 입력의 문자열을 넘겨 비교하되 os/exec.Command를 직접 사용하고 쉘 문자열 조립을 하지 않는다.
-- [ ] 기준 프로그램은 한 번 컴파일하고 테스트 데이터는 두 구현에 동일하게 전달한다.
-- [ ] TestCOBOLInterest에서 1000000,0.05,0.5→25000과 999999999.99,1,10→E_LEGACY_RANGE를 확인한다.
-- [ ] TestCOBOLFee에서 1000000의 아래·같음·위 경계와 1002000→1001을 확인하고 분기까지 비교한다.
-- [ ] TestCOBOLSum에서 0.335 세 건→1.00, 음수 조정, 수신 범위 초과를 확인한다.
-- [ ] 각 규칙에 고정 시드 경계·정상·출력 오류 사례를 합쳐 최소 1,000건씩 생성한다.
-- [ ] 계약이 거절한 입력은 별도 집계하고 COBOL 실행 일치율의 분모에 섞지 않는다.
-- [ ] Run: go test ./tests/compat -run TestCOBOL -count=1 -v
+- [x] Go와 cobc 버전을 확인하고 정확한 컴파일 명령을 기록한다. 환경 조정: 이번 검증은 Windows native GnuCOBOL 3.2에서 실행했다.
+- [x] COBOL의 3개 기준 프로그램에 입력·중간·수신 필드를 고정하고 ON SIZE ERROR를 명시한다.
+- [x] 표준 입력의 문자열을 넘겨 비교하되 os/exec.Command를 직접 사용하고 쉘 문자열 조립을 하지 않는다.
+- [x] 기준 프로그램은 한 번 컴파일하고 테스트 데이터는 두 구현에 동일하게 전달한다.
+- [x] TestCOBOLInterest에서 1000000,0.05,0.5→25000과 999999999.99,1,10→E_LEGACY_RANGE를 확인한다.
+- [x] TestCOBOLFee에서 1000000의 아래·같음·위 경계와 1002000→1001을 확인하고 분기까지 비교한다.
+- [x] TestCOBOLSum에서 0.335 세 건→1.00, 음수 조정, 수신 범위 초과를 확인한다.
+- [x] 각 규칙에 고정 시드 경계·정상·출력 오류 사례를 합쳐 최소 1,000건씩 생성한다.
+- [x] 계약이 거절한 입력은 별도 집계하고 COBOL 실행 일치율의 분모에 섞지 않는다.
+- [x] Run: go test ./tests/compat -run TestCOBOL -count=1 -v
 
 GnuCOBOL이 없으면 테스트는 이유를 출력하고 건너뛸 수 있으나, 이 경우 v0.3 호환성 완료 기준은 충족되지 않는다. 컴파일러별 차이를 발견하면 바뀐 값을 조용히 정답으로 채택하지 말고 프로필과 규칙을 분리해 기록한다.
 
@@ -382,22 +382,23 @@ GnuCOBOL이 없으면 테스트는 이유를 출력하고 건너뛸 수 있으�
 
 **Files:** experiments/addition_benchmark_test.go, internal/decimal/fuzz_test.go, docs/evaluation/performance.md, usability.md, design-decisions.md, README.md.
 
-- [ ] 문자열 직접 덧셈과 float64 기준 구현을 작은 실험 코드로 둔다. 문자열 방식 전체의 성능이라고 확대하지 않는다.
-- [ ] float 비교는 실제 float64 변수·입력을 사용하고 상수 계산 최적화와 구분한다.
-- [ ] 입력 해석·숫자 산술·전체 실행을 분리해 짧은 금액·다른 스케일·긴 계수·소액 누적을 측정한다.
-- [ ] FuzzDecimalParse(f *testing.F)를 정의해 정상·비정상 숫자와 자릿수 경계를 넣는다. 성공한 입력은 String으로 출력한 뒤 다시 파싱해 같은 값인지 확인한다.
+- [x] 문자열 직접 덧셈과 float64 기준 구현을 작은 실험 코드로 둔다. 문자열 방식 전체의 성능이라고 확대하지 않는다.
+- [x] float 비교는 실제 float64 변수·입력을 사용하고 상수 계산 최적화와 구분한다.
+- [x] 입력 해석·숫자 산술·전체 실행을 분리해 짧은 금액·다른 스케일·긴 계수·소액 누적을 측정한다.
+- [x] FuzzDecimalParse(f *testing.F)를 정의해 정상·비정상 숫자와 자릿수 경계를 넣는다. 성공한 입력은 String으로 출력한 뒤 다시 파싱해 같은 값인지 확인한다.
 - [ ] Run: go test ./internal/decimal ./experiments -run '^$' -bench . -benchmem -count=5
-- [ ] Run: go test ./internal/lexer -run '^$' -fuzz FuzzLexerNoPanic -fuzztime=30s
-- [ ] Run: go test ./internal/decimal -run '^$' -fuzz FuzzDecimalParse -fuzztime=30s
-- [ ] 발견한 실패 입력을 회귀 테스트에 추가하고 해당 변경이 영향을 주는 검증을 다시 실행한다.
+- [x] Run: go test ./internal/lexer -run '^$' -fuzz FuzzLexerNoPanic -fuzztime=30s
+- [x] Run: go test ./internal/decimal -run '^$' -fuzz FuzzDecimalParse -fuzztime=30s
+- [x] 발견한 실패 입력을 회귀 테스트에 추가하고 해당 변경이 영향을 주는 검증을 다시 실행한다.
 - [ ] 참가자 3~5명에게 동등한 DSL·Python decimal 규칙 수정 과제를 제공한다. 순서와 도움 조건을 기록한다.
 - [ ] 완료·시간·실수·도움 요청·설명 정확도를 개인 단위로 남긴다.
-- [ ] README에 숫자 의미, 정산 정책, 실행법, 한도, 호환성 범위, 미실행 항목을 적는다.
-- [ ] Run: go test ./...
-- [ ] Run: go vet ./...
-- [ ] Run: go build ./cmd/fin
+- [x] README에 숫자 의미, 정산 정책, 실행법, 한도, 호환성 범위, 미실행 항목을 적는다.
+- [x] Run: go test ./...
+- [x] Run: go vet ./...
+- [x] Run: go build ./cmd/fin
 
 성능 개선이나 사용자 우위가 관찰되지 않아도 원자료를 그대로 보고한다. 언어 기능 완료와 우위 주장 여부는 별도 판정한다.
+
 
 ## 주차별 배정
 
@@ -441,3 +442,9 @@ v0.1 언어 기능과 숫자 검증을 완료했다. 초기 표현 실험은 문
 ## v0.2 실행 결과
 
 Money·통화·정산·JSON 계약·실제 계산 기록을 구현했다. 전체 96개 최상위 테스트/퍼즈 함수(하위 사례 포함319개), 독립 숫자 회귀 기준, race/vet/build와 실제 실행 파일 검증을 통과했다. 세부 결과: ../../evaluation/v0.2-verification.md. 사용자 요청에 따라 비공개 GitHub 저장소 Pirite08/finlang에 게시하며, COBOL 비교는 v0.3에 남긴다.
+
+## v0.3 실행 결과
+
+교육용 COBOL의 단리·수수료·합산을 각각 1,024건, 총3,072건 실제 실행해 결과·오류·분기를 비교했다. 불일치0건, 독립 수작업 기준54개 일치, 계약 입력 거절40개는 별도로 집계했다. Windows/GnuCOBOL3.2의 예약어·별칭·경로 차이를 edu-packed-v1에 고정했다. 기존 production 숫자 엔진·규칙·계약은 바꾸지 않았다.
+
+Task14의 새 표현 비교는 측정 경계가 같은 28개 benchmark를 200ms씩5회 실행했다. 기존 전체 benchmark 명령의 일부는 서로 다른 경계를 비교하므로 이 새 결과와 합치지 않았고 위 원래 전체 실행 체크는 남겨 둔다. 지속 lexer/Decimal fuzz 각각30초, 전체108개 최상위 테스트·퍼즈 함수(하위 사례491개)와vet/build를 통과했다. 사람 대상 사용성 평가만은 미실행이며 원래 사용성 완료 기준은 아직 남아 있다. 실제 결과: ../../evaluation/compatibility.md, ../../evaluation/v0.3-verification.md, ../../evaluation/performance.md, ../../evaluation/usability.md.

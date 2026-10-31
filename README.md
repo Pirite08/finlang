@@ -2,13 +2,13 @@
 
 **Exact decimals. Explicit settlement. Inspectable calculations.**
 
-`v0.2` · `Go 1.25+` · `표준 라이브러리만 사용`
+`v0.3` · `Go 1.25+` · `표준 라이브러리만 사용`
 
 금액을 언제, 몇 자리에서, 어떤 규칙으로 정산할지 코드에 직접 쓰는 작은 인터프리터입니다. 십진수는 이진 부동소수점으로 바꾸지 않고 계산하며, `Money`는 통화를 함께 보존합니다. JSON 계약으로 입력과 출력을 검사하고, 실제 계산 과정은 JSONL trace로 확인할 수 있습니다.
 
 학습·검증을 위한 프로젝트입니다. 현재 버전은 금융 시스템의 운영 적합성이나 COBOL 호환성을 보증하지 않습니다.
 
-[빠른 시작](#빠른-시작) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [계산 기록](#실제로-실행한-계산-기록하기) · [검증](#검증-재현하기)
+[빠른 시작](#빠른-시작) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [계산 기록](#실제로-실행한-계산-기록하기) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
 
 ## 빠른 시작
 
@@ -40,7 +40,7 @@ go run ./cmd/fin -file examples/interest_v1.fin -contract contracts/interest_v1.
 go build -o build/fin.exe ./cmd/fin
 ```
 
-Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.2.0`을 출력합니다.
+Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.3.0`을 출력합니다.
 
 인수 없이 `go run ./cmd/fin`을 실행하면 한 줄 REPL이 열립니다. 선언한 이름은 다음 줄에도 남습니다. 여러 줄 함수는 UTF-8 파일에 저장한 뒤 `-file`로 실행합니다. 파일에서 값을 출력하려면 `print(...)`를 사용합니다.
 
@@ -204,13 +204,49 @@ go test ./internal/contract ./internal/trace -v
 
 v0.1 기준 검증에서는 소수 입력 10,000쌍을 `math/big.Rat`과 비교하고, 반올림·나눗셈 12,041건을 독립 기준과 대조했습니다. 이는 **v0.1 숫자 연산 검증**이며 v0.2 전체의 테스트 건수를 뜻하지 않습니다.
 
-v0.2에서도 이 숫자 회귀 검증을 다시 통과했습니다. 최종 통합 검증은 최상위 테스트·퍼즈 함수 **96개**, 하위 사례 포함 **319개**가 통과했으며, 빌드한 실행 파일로 예제와 오류 경로 **18개**를 확인했습니다.
+v0.2에서도 이 숫자 회귀 검증을 다시 통과했습니다. 당시 통합 검증은 최상위 테스트·퍼즈 함수 **96개**, 하위 사례 포함 **319개**가 통과했으며, 빌드한 실행 파일로 예제와 오류 경로 **18개**를 확인했습니다.
 
 - [v0.1 검증 범위와 결과](docs/evaluation/v0.1-verification.md)
 - [v0.2 검증 범위와 결과](docs/evaluation/v0.2-verification.md)
+- [v0.3 통합 검증](docs/evaluation/v0.3-verification.md): 최상위 108개, 하위 사례 포함 491개 통과; COBOL 비교 건너뜀 없음
 - [설계 선택과 제약](docs/evaluation/design-decisions.md)
 
 표현 방식 실험은 `go test ./experiments -run TestRepresentationProbe -v`와 `go test ./experiments -bench BenchmarkRepresentationProbe -benchmem`으로 재현할 수 있습니다. 파싱·메모리 할당 포함 조건이 달라, 이 측정만으로 인터프리터 전체나 특정 숫자 표현의 속도 우위를 판단하지 않습니다.
+
+## COBOL과 같은 입력으로 비교하기
+
+v0.3에서는 직접 작성한 교육용 COBOL 프로그램과 기존 finlang의 **이자·수수료·합산 규칙**을 실제로 실행해 비교했습니다. Windows/amd64의 GnuCOBOL 3.2.0에서 다음 결과를 확인했습니다.
+
+| 규칙 | 실제 양쪽 실행 | 일치 | 불일치 | 같은 수신 범위 오류 |
+| --- | ---: | ---: | ---: | ---: |
+| 이자 | 1,024 | 1,024 | 0 | 414 |
+| 수수료 | 1,024 | 1,024 | 0 | 0 |
+| 합산 | 1,024 | 1,024 | 0 | 343 |
+| 합계 | **3,072** | **3,072** | **0** | **757** |
+
+정상 금액 2,315건과 예상 범위 오류 757건이 일치했습니다. 독립적으로 계산한 기준값 54개도 양쪽이 통과했습니다. 잘못된 통화·자리·범위·JSON 등 계약 입력 거절 40건은 COBOL로 보내지 않고 별도로 확인했습니다.
+
+수수료 경계 `999999.99 / 1000000 / 1000000.01`은 정산 금액이 모두 `1000`이어도 실제 분기가 `low / low / high`인지 확인합니다. 합산은 양수·음수의 HALF_EVEN 중간값, 상쇄, 음의 0, 최종 필드 초과를 확인합니다. 단리의 14자리 중간 소수도 보존합니다.
+
+COBOL에도 십진수와 반올림 기능이 있습니다. 비교에서는 PACKED-DECIMAL 필드와 반올림을 명시했으며, HALF_UP에는 `NEAREST-AWAY-FROM-ZERO`, HALF_EVEN에는 `NEAREST-EVEN`을 사용했습니다. 엄격한 표준 모드의 별칭·예약어 차이는 [고정 프로필](testdata/cobol/profile.md)에 기록했습니다. 결과를 맞추려고 수식이나 필드 범위를 바꾸지 않았습니다.
+
+GnuCOBOL과 C 도구 체인이 준비된 PowerShell에서:
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+$env:FINLANG_REQUIRE_COBOL = '1'
+$env:FINLANG_COMPAT_REPORT = Join-Path (Get-Location) 'build/compatibility.jsonl'
+go test ./tests/compat -run TestCOBOL -count=1 -v
+```
+
+`COBC`로 컴파일러 경로를 지정할 수 있습니다. 도구가 없으면 일반 테스트는 비교를 건너뛰므로, 실제 비교 확인에는 위처럼 `FINLANG_REQUIRE_COBOL=1`을 사용합니다.
+
+- [비교 결과·경계 사례·환경·재현 방법](docs/evaluation/compatibility.md)
+- [입력과 양쪽 결과, 명령과 소스 해시를 담은 전체 JSONL](docs/evaluation/v0.3-compatibility.jsonl)
+- [표현 방식별 성능 측정과 원자료](docs/evaluation/performance.md)
+- [사용 과제 평가 계획과 빈 기록지](docs/evaluation/usability.md)
+
+이 결과는 **명시한 프로필과 입력 집합**에 한정됩니다. IBM Enterprise COBOL이나 은행 시스템 전체의 호환성을 뜻하지 않습니다. 실제 참가자 사용성 평가는 미실행이며, 이번 덧셈 실험에서는 실험용 문자열 구현이 현재 스케일드 정수 구현보다 빨랐습니다. 따라서 접근성·속도 우위를 검증했다고 주장하지 않습니다.
 
 ## 다음 단계
 
@@ -218,6 +254,7 @@ v0.2에서도 이 숫자 회귀 검증을 다시 통과했습니다. 최종 통�
 | --- | --- |
 | v0.1 | Decimal과 언어·파일 실행·REPL 기반 |
 | v0.2 | Money, 명시적 정산, JSON 계약 실행, 실제 실행 trace |
-| v0.3 계획 | 제한된 규칙 범위에서 COBOL과 결과 비교 및 경계 사례 검증 |
+| v0.3 | 교육용 COBOL 3개 규칙의 실제 차등 비교, 경계·오류 검증과 재현 자료 |
+| 남은 평가 | 실제 참가자 사용성 평가, 실제 업무 규칙 및 다른 COBOL 환경의 별도 검증 |
 
-v0.3은 후속 계획입니다. 현재 구현을 COBOL 대체품이나 호환 실행기로 설명하지 않습니다.
+작은 계산 규칙을 옮길 때 입력·중간 필드·정산 시점·예외가 보존되는지 확인하는 단계입니다. 운영 시스템의 교체는 후속 검증 범위입니다.

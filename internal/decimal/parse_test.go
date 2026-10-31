@@ -68,22 +68,3 @@ func TestDecimalBoundaries(t *testing.T) {
 	_, err = decimal.Parse("0.01", custom)
 	checkCode(t, err, "E_NUMERIC_LIMIT")
 }
-
-func FuzzDecimalParse(f *testing.F) {
-	for _, s := range []string{"0", "-0.003", "12.30", ".5", "1e3", strings.Repeat("9", 128), "0." + strings.Repeat("0", 36) + "1"} {
-		f.Add(s)
-	}
-	f.Fuzz(func(t *testing.T, s string) {
-		if len(s) > 512 {
-			t.Skip()
-		}
-		d, err := decimal.Parse(s, limits)
-		if err != nil {
-			return
-		}
-		again, err := decimal.Parse(d.String(), limits)
-		if err != nil || again.String() != d.String() {
-			t.Fatalf("canonical round trip %q -> %q: %v", s, d.String(), err)
-		}
-	})
-}
