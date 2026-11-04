@@ -8,7 +8,7 @@ import (
 )
 
 func FuzzParserNoPanic(f *testing.F) {
-	for _, source := range []string{"", `let f = fn(x) { if (true) { return x } else { return 0 } }; f(0.100);`, `"unterminated`, "\xff", strings.Repeat("(", 200) + "1", strings.Repeat("1+", 200) + "1", "f" + strings.Repeat("()", 200)} {
+	for _, source := range []string{"", `let f = fn(x) { if (true) { return x } else { return 0 } }; f(0.100);`, exchangeRule, `"unterminated`, "\xff", strings.Repeat("(", 200) + "1", strings.Repeat("1+", 200) + "1", "f" + strings.Repeat("()", 200)} {
 		f.Add(source)
 	}
 	f.Fuzz(func(t *testing.T, source string) {

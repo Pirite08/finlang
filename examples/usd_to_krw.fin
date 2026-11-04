@@ -1,0 +1,22 @@
+rule usd_to_krw {
+    input amount in "USD"
+    output result in "KRW"
+
+    step check_amount {
+        require amount > money("USD", 0)
+    }
+
+    step get_rate {
+        let quote = rate("USD", "KRW")
+    }
+
+    step convert_amount {
+        let converted = convert(amount, quote)
+    }
+
+    step settle_amount {
+        let result = settle(converted, 0, "HALF_EVEN")
+    }
+
+    return result
+}

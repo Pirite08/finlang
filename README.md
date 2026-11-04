@@ -2,13 +2,13 @@
 
 **Exact decimals. Explicit settlement. Inspectable calculations.**
 
-`v0.3` · `Go 1.25+` · `표준 라이브러리만 사용`
+`v0.4.0` · `Go 1.25+` · `표준 라이브러리만 사용`
 
 금액을 언제, 몇 자리에서, 어떤 규칙으로 정산할지 코드에 직접 쓰는 작은 인터프리터입니다. 십진수는 이진 부동소수점으로 바꾸지 않고 계산하며, `Money`는 통화를 함께 보존합니다. JSON 계약으로 입력과 출력을 검사하고, 실제 계산 과정은 JSONL trace로 확인할 수 있습니다.
 
 학습·검증을 위한 프로젝트입니다. 현재 버전은 금융 시스템의 운영 적합성이나 COBOL 호환성을 보증하지 않습니다.
 
-[빠른 시작](#빠른-시작) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [계산 기록](#실제로-실행한-계산-기록하기) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
+[빠른 시작](#빠른-시작) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [계산 기록](#실제로-실행한-계산-기록하기) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
 
 ## 빠른 시작
 
@@ -40,7 +40,7 @@ go run ./cmd/fin -file examples/interest_v1.fin -contract contracts/interest_v1.
 go build -o build/fin.exe ./cmd/fin
 ```
 
-Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.3.0`을 출력합니다.
+Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.4.0`을 출력합니다.
 
 인수 없이 `go run ./cmd/fin`을 실행하면 한 줄 REPL이 열립니다. 선언한 이름은 다음 줄에도 남습니다. 여러 줄 함수는 UTF-8 파일에 저장한 뒤 `-file`로 실행합니다. 파일에서 값을 출력하려면 `print(...)`를 사용합니다.
 
@@ -73,7 +73,7 @@ USD 1.02
 | `settle(Money, digits, mode)` | 지정한 자릿수로 정산 |
 | `format_money(Money, digits)` | 통화와 고정 소수 자릿수를 가진 문자열 생성 |
 
-지원 통화는 `KRW`, `USD`입니다. 서로 다른 통화의 덧셈·비교는 `E_CURRENCY_MISMATCH`, 다른 통화 생성은 `E_UNSUPPORTED_CURRENCY`입니다. 환산은 제공하지 않습니다. `Money + Decimal`, `Money * Money`도 허용하지 않습니다.
+지원 통화는 `KRW`, `USD`입니다. 서로 다른 통화의 덧셈·비교는 `E_CURRENCY_MISMATCH`, 다른 통화 생성은 `E_UNSUPPORTED_CURRENCY`입니다. 통화를 바꾸려면 절차형 규칙에서 `convert`에 환율을 지정합니다. `Money + Decimal`, `Money * Money`도 허용하지 않습니다.
 
 ### 숫자와 표시 문자열
 
@@ -140,19 +140,82 @@ let main = fn(principal, annual_rate, years) {
 
 다른 규칙을 실행하려면 빠른 시작 명령의 소스·계약·입력 파일을 해당 행의 파일로 바꿉니다. `-file`, `-contract`, `-input`, `-json`을 함께 사용하고, trace가 필요할 때 `-trace`를 추가합니다.
 
+## 절차형 환산 규칙
+
+USD를 KRW로 환산하는 규칙은 입력과 출력의 통화를 먼저 선언하고, 검사·조회·환산·정산 순서를 `step`으로 표현합니다. [예제 소스](examples/usd_to_krw.fin)
+
+```text
+rule usd_to_krw {
+    input amount in "USD"
+    output result in "KRW"
+
+    step check_amount {
+        require amount > money("USD", 0)
+    }
+
+    step get_rate {
+        let quote = rate("USD", "KRW")
+    }
+
+    step convert_amount {
+        let converted = convert(amount, quote)
+    }
+
+    step settle_amount {
+        let result = settle(converted, 0, "HALF_EVEN")
+    }
+
+    return result
+}
+```
+
+`rule`은 금액 입력 하나와 금액 출력 하나를 선언합니다. `step`은 적힌 순서대로 실행되며, 단계 본문에 바로 선언한 `let` 값은 뒤 단계에서 읽을 수 있습니다. `require`는 Bool을 검사하고 `false`이면 그 위치에서 실행을 끝냅니다. 마지막 `return`에는 선언한 출력 이름을 씁니다.
+
+JSON 계약의 `entry`는 `rule` 이름과 같아야 하며, 입력 이름·통화와 출력 통화도 소스 선언과 일치해야 합니다. 계약은 금액 범위와 자릿수를 정합니다. `convert`는 정확한 소수로 환산하고 `settle`은 따로 원 단위 `HALF_EVEN`을 적용합니다. [JSON 계약](contracts/usd_to_krw.json) · [USD 10 입력](testdata/inputs/usd_to_krw.json)
+
+### 고정 환율로 실행하기
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -fx-fixed testdata/fx/usd_to_krw.json -trace build/usd_to_krw.trace.jsonl
+```
+
+USD 10에 고정 환율 `1350.25`를 곱하면 KRW 13502.5이고, 원 단위 정산 결과는 KRW 13502입니다. 환율 파일에는 방향(`base`, `target`), 십진 문자열 `rate`, 출처 `source`, 기준 시각 `as_of`가 들어 있습니다. [고정 환율 파일](testdata/fx/usd_to_krw.json)
+
+```json
+{"schema_version":"1","rule":"usd_to_krw","status":"ok","result":{"currency":"KRW","amount":"13502"}}
+```
+
+### 실시간 환율로 실행하기
+
+Alpha Vantage를 사용하려면 실행할 셸의 `FINLANG_ALPHA_VANTAGE_API_KEY` 환경 변수에 API 키를 설정합니다. [Alpha Vantage 환율 API](https://www.alphavantage.co/documentation/#currency-exchange)
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -fx-provider alpha-vantage -trace build/usd_to_krw-live.trace.jsonl
+```
+
+직접 운영하는 공급처는 `-fx-url`로 지정할 수 있습니다. 아래 예시의 URL을 공급처 주소로 바꾸면 `GET` 요청에 `base=USD`와 `target=KRW`가 붙습니다. 응답은 고정 환율 파일과 같은 JSON 형식이며 `as_of`는 해당 환율의 실제 기준 시각입니다. 일반 공급처 주소는 HTTPS를 사용하며, 루프백 어댑터는 HTTP도 사용할 수 있습니다.
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -fx-url https://quotes.example.net/latest -trace build/usd_to_krw-live.trace.jsonl
+```
+
+`-fx-fixed`, `-fx-provider`, `-fx-url` 중 하나를 선택합니다. 실시간 모드에서는 `rate`를 처음 호출할 때 해당 방향의 환율을 한 번 조회하고, 같은 실행 안에서 같은 방향을 다시 요청하면 그 값을 사용합니다. 다음 실행에서는 다시 조회합니다. 기준 시각이 기본 5분보다 오래됐거나 미래이면 오류를 반환합니다. 허용 경과 시간은 `-fx-max-age`로 조정합니다.
+
+`-trace`를 지정하면 헤더의 `fx_quotes`에 적용 환율·방향·출처·기준 시각을 저장하고, `step_start`·`binding`·`step_end`에 실제 단계와 중간 값을 기록합니다. 한도에 도달해 이벤트가 잘려도 사용한 환율은 헤더에 남습니다. 환율 한 건을 재현하려면 헤더의 해당 객체를 JSON 파일로 저장해 `-fx-fixed`로 실행합니다.
+
 ## 실제로 실행한 계산 기록하기
 
 `-trace build/interest.trace.jsonl`은 실제 평가 중 발생한 연산·함수 호출·분기·정산 등을 한 줄에 하나의 JSON 레코드로 기록합니다. 소스를 분석해 예상 경로를 만들어 낸 기록이 아닙니다.
 
 | 레코드 | 내용 |
 | --- | --- |
-| `header` | 소스 SHA-256, 계약·실행기 버전, 입력, 실행 한도 |
-| `event` | 순번, 소스 위치, 입력·결과, 해당되는 경우 통화·목표 자릿수·모드·분기 |
+| `header` | 소스 SHA-256, 계약·실행기 버전, 입력, 실행 한도, 사용한 환율 |
+| `event` | 순번, 소스 위치, 입력·결과, 해당되는 경우 통화·목표 자릿수·모드·분기·단계 |
 | `summary` | 기록한 이벤트 수와 `trace_truncated` |
 
 `inexact: true`는 해당 정산·나눗셈에서 0이 아닌 자리를 버렸다는 뜻입니다. 기본 기록 한도는 **10,000개 이벤트**입니다. 한도를 넘으면 추가 이벤트를 버리고 `trace_truncated: true`를 남기며, 계산 자체는 계속합니다. 따라서 잘린 trace는 전체 실행 기록으로 해석하면 안 됩니다.
 
-같은 소스·입력·계약·실행 설정에는 같은 기록을 생성하도록 설계했습니다. trace는 입력과 중간 금액을 포함하므로 공유할 때 그 내용도 함께 확인해야 합니다.
+소스·입력·계약·실행 설정과 사용한 환율이 같으면 같은 기록을 생성하도록 설계했습니다. trace는 입력과 중간 금액을 포함하므로 공유할 때 그 내용도 함께 확인해야 합니다.
 
 ## 언어 범위와 실행 한도
 
@@ -171,7 +234,7 @@ let main = fn(principal, annual_rate, years) {
 
 한도를 넘으면 오류로 알립니다. 진단은 가능한 경우 파일명·행·열·오류 코드를 포함합니다. CLI 종료 코드는 성공 `0`, 소스·계산·계약 오류 `1`, 사용법·파일 입출력 오류 `2`입니다. REPL은 개별 계산 오류 후 다음 줄을 읽으며 실행 한도는 줄마다 초기화합니다.
 
-자동 형 변환, 문자열 연결, 논리 AND·OR, 환율 변환, 배분 연산, JIT, COBOL 실행·호환 계층은 현재 제공하지 않습니다.
+자동 형 변환, 문자열 연결, 논리 AND·OR, 배분 연산, JIT, COBOL 실행·호환 계층은 현재 제공하지 않습니다.
 
 ## 코드 구조
 
@@ -186,6 +249,7 @@ UTF-8 source → lexer → parser → AST → evaluator → result
 | [`cmd/fin`](cmd/fin), [`internal/cli`](internal/cli) | 실행 진입점과 CLI |
 | [`internal/decimal`](internal/decimal) | 십진 표현·정확한 연산·반올림·표시 |
 | [`internal/money`](internal/money) | 통화 검사와 명시적 정산 |
+| [`internal/fx`](internal/fx) | 고정·HTTP 환율과 Alpha Vantage 응답 검증 |
 | [`internal/lexer`](internal/lexer), [`internal/parser`](internal/parser), [`internal/ast`](internal/ast) | 토큰·문법·구문 트리 |
 | [`internal/eval`](internal/eval), [`internal/repl`](internal/repl) | 평가·내장 함수·대화형 실행 |
 | [`internal/contract`](internal/contract) | JSON 계약과 입력·출력 검증 |
@@ -194,6 +258,27 @@ UTF-8 source → lexer → parser → AST → evaluator → result
 | [`examples`](examples), [`contracts`](contracts), [`testdata`](testdata) | 실행 예제·계약·검증 입력 |
 
 ## 검증 재현하기
+
+### v0.4.0 검증 결과
+
+| 검증 | 결과 |
+| --- | --- |
+| 전체 Go 테스트 | 최상위 127개, 하위 사례 포함 547개 통과, 건너뜀 0개 |
+| GnuCOBOL 회귀 비교 | 이자·수수료·합산 3,072건 실행, 3,072건 일치, 계약 입력 거절 40건 별도 집계 |
+| 고정 환율 | 단계 순서와 환산·정산 값, 출처·기준 시각 기록 확인 |
+| HTTP 환율 | 응답을 바꾸는 로컬 HTTP 서버로 실행 내 재사용·다음 실행 재조회 확인 |
+| Alpha Vantage | 어댑터는 테스트 응답으로 검증. 실제 계정 호출은 API 키 미설정으로 미실행 |
+| 정적 검사·빌드 | `go vet ./...`와 실행 파일 빌드 통과 |
+
+환산 규칙과 공급처 테스트를 따로 실행할 수 있습니다.
+
+```sh
+go test ./internal/cli ./internal/fx -run 'TestRule|TestHTTPProvider|TestAlphaVantage' -count=1 -v
+```
+
+COBOL 비교를 포함한 전체 결과를 재현하려면 GnuCOBOL과 C 도구 체인을 준비하고 `FINLANG_REQUIRE_COBOL=1`을 설정한 뒤 `go test -count=1 ./...`를 실행합니다. [COBOL 비교 설정](#cobol과-같은-입력으로-비교하기)
+
+### 기존 버전 검증
 
 ```sh
 go test -count=1 ./...
@@ -255,6 +340,7 @@ go test ./tests/compat -run TestCOBOL -count=1 -v
 | v0.1 | Decimal과 언어·파일 실행·REPL 기반 |
 | v0.2 | Money, 명시적 정산, JSON 계약 실행, 실제 실행 trace |
 | v0.3 | 교육용 COBOL 3개 규칙의 실제 차등 비교, 경계·오류 검증과 재현 자료 |
+| v0.4 | 순서가 명시된 `rule`·`step`, 실행마다 조회하는 환율과 실행 내 고정, 환율·단계 기록 |
 | 남은 평가 | 실제 참가자 사용성 평가, 실제 업무 규칙 및 다른 COBOL 환경의 별도 검증 |
 
 작은 계산 규칙을 옮길 때 입력·중간 필드·정산 시점·예외가 보존되는지 확인하는 단계입니다. 운영 시스템의 교체는 후속 검증 범위입니다.

@@ -10,10 +10,12 @@ import (
 	"github.com/Pirite08/finlang/internal/trace"
 )
 
-func isBuiltin(name string) bool {
+func (e *Evaluator) isBuiltin(name string) bool {
 	switch name {
 	case "print", "round", "div", "format", "money", "settle", "format_money":
 		return true
+	case "rate", "convert":
+		return e.rule != nil
 	}
 	return false
 }
@@ -23,6 +25,9 @@ func arityError(name string, want, got int) error {
 }
 
 func (e *Evaluator) builtin(name string, args []Value, span diagnostic.Span) (Value, error) {
+	if name == "rate" || name == "convert" {
+		return e.fxBuiltin(name, args, span)
+	}
 	expected := map[string]int{"print": 1, "round": 3, "div": 4, "format": 2, "money": 2, "settle": 3, "format_money": 2}
 	if len(args) != expected[name] {
 		return nil, arityError(name, expected[name], len(args))

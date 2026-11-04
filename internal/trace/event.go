@@ -14,6 +14,10 @@ type Event struct {
 	Mode        string          `json:"mode,omitempty"`
 	Inexact     bool            `json:"inexact"`
 	Branch      string          `json:"branch,omitempty"`
+	Step        string          `json:"step,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	Binding     string          `json:"binding,omitempty"`
+	ErrorCode   diagnostic.Code `json:"error_code,omitempty"`
 }
 
 type Sink interface{ Record(Event) }

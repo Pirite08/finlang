@@ -41,7 +41,8 @@ func exitCode(err error) int {
 }
 
 func (c command) runFile(limits config.Limits) int {
-	if err := validateTraceDestination(c.trace, []string{c.file, c.contract, c.input}); err != nil {
+	protectedPaths := []string{c.file, c.contract, c.input, c.fxFixed}
+	if err := validateTraceDestination(c.trace, protectedPaths); err != nil {
 		return c.fail(err, 2)
 	}
 	source, err := readLimitedFile(c.file, limits)
@@ -77,19 +78,39 @@ func (c command) runFile(limits config.Limits) int {
 	}
 	var recorder *trace.Recorder
 	options := eval.Options{Limits: limits, Stdout: c.stdout, JSONMode: c.json}
+	if program.Rule != nil {
+		if !c.json {
+			return c.fail(diagnostic.New("E_CLI_USAGE", "rule execution requires -json, -contract and -input"), 2)
+		}
+		if err := validateRuleContract(program.Rule, spec); err != nil {
+			return c.fail(err, 1)
+		}
+		options.FXProvider, err = c.quoteProvider(limits)
+		if err != nil {
+			return c.fail(err, exitCode(err))
+		}
+	} else if c.hasFXSource() {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "FX source options require a rule declaration"), 2)
+	}
 	if c.trace != "" {
 		recorder = trace.NewRecorder(limits.MaxTraceEvents)
 		options.Trace = recorder
 	}
 	evaluator := eval.New(options)
-	env := eval.NewEnvironment(nil)
-	result, runErr := evaluator.Run(program, env)
-	if runErr == nil && c.json {
-		entry, found := env.Lookup(spec.Entry)
-		if !found || entry.Kind() != eval.KindFunction {
-			runErr = diagnostic.New("E_CONTRACT_ENTRY", "contract entry must name a user-defined function")
-		} else {
-			result, runErr = evaluator.Call(entry, args, diagnostic.Span{File: c.file, Line: 1, Column: 1})
+	var result eval.Value
+	var runErr error
+	if program.Rule != nil {
+		result, runErr = evaluator.RunRule(program.Rule, args[0])
+	} else {
+		env := eval.NewEnvironment(nil)
+		result, runErr = evaluator.Run(program, env)
+		if runErr == nil && c.json {
+			entry, found := env.Lookup(spec.Entry)
+			if !found || entry.Kind() != eval.KindFunction {
+				runErr = diagnostic.New("E_CONTRACT_ENTRY", "contract entry must name a user-defined function")
+			} else {
+				result, runErr = evaluator.Call(entry, args, diagnostic.Span{File: c.file, Line: 1, Column: 1})
+			}
 		}
 	}
 	var output bytes.Buffer
@@ -98,8 +119,8 @@ func (c command) runFile(limits config.Limits) int {
 	}
 	if recorder != nil {
 		hash := sha256.Sum256(source)
-		header := trace.Header{SchemaVersion: "1", ProgramSHA256: hex.EncodeToString(hash[:]), ContractVersion: spec.SchemaVersion, RunnerVersion: "fin " + Version, Input: rawInput, Limits: limits}
-		if err := writeTrace(c.trace, header, recorder, []string{c.file, c.contract, c.input}); err != nil {
+		header := trace.Header{SchemaVersion: "1", ProgramSHA256: hex.EncodeToString(hash[:]), ContractVersion: spec.SchemaVersion, RunnerVersion: "fin " + Version, Input: rawInput, Limits: limits, FXQuotes: evaluator.FXQuotes()}
+		if err := writeTrace(c.trace, header, recorder, protectedPaths); err != nil {
 			return c.fail(err, 2)
 		}
 	}

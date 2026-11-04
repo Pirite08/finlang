@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/fx"
 )
 
 // Header identifies the reproducible inputs and settings for an execution.
@@ -15,6 +16,7 @@ type Header struct {
 	RunnerVersion   string          `json:"runner_version"`
 	Input           json.RawMessage `json:"input"`
 	Limits          config.Limits   `json:"limits"`
+	FXQuotes        []fx.Quote      `json:"fx_quotes,omitempty"`
 }
 
 // WriteJSONL writes a header, retained events, and a truncation summary.

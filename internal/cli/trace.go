@@ -35,7 +35,7 @@ func validateTraceDestination(destination string, inputs []string) error {
 			equal = true
 		}
 		if equal {
-			return diagnostic.New("E_TRACE_IO", "trace output must not overwrite the source, contract or input file")
+			return diagnostic.New("E_TRACE_IO", "trace output must not overwrite the source, contract, input or fixed quote file")
 		}
 	}
 	return nil

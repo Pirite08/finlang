@@ -17,6 +17,7 @@ type parser struct {
 	err               error
 	depth, maxDepth   int
 	heights           map[ast.Node]int
+	inStep            bool
 }
 
 func Parse(file, source string, limits config.Limits) (*ast.Program, error) {
@@ -30,10 +31,17 @@ func Parse(file, source string, limits config.Limits) (*ast.Program, error) {
 	p := &parser{lexer: l, maxDepth: limits.MaxSyntaxDepth, heights: make(map[ast.Node]int)}
 	p.advance()
 	program := &ast.Program{}
-	for p.err == nil && p.current.Kind != token.EOF {
-		stmt := p.statement()
-		if p.err == nil {
-			program.Statements = append(program.Statements, stmt)
+	if p.startsRule() {
+		program.Rule = p.rule()
+		if p.current.Kind != token.EOF {
+			p.fail("E_SYNTAX", "a rule must be the only top-level declaration", p.current.Span)
+		}
+	} else {
+		for p.err == nil && p.current.Kind != token.EOF {
+			stmt := p.statement()
+			if p.err == nil {
+				program.Statements = append(program.Statements, stmt)
+			}
 		}
 	}
 	if p.err != nil {
@@ -102,12 +110,27 @@ func (p *parser) terminator() {
 		p.advance()
 		return
 	}
-	if p.current.Kind != token.EOF && p.current.Kind != token.RBrace {
-		p.fail("E_SYNTAX", "expected semicolon between statements", p.current.Span)
+	if p.current.Kind == token.EOF || p.current.Kind == token.RBrace {
+		return
 	}
+	if p.inStep {
+		if p.current.Span.Line <= p.previous.Span.Line {
+			p.fail("E_SYNTAX", "expected newline or semicolon between step statements", p.current.Span)
+		}
+		return
+	}
+	p.fail("E_SYNTAX", "expected semicolon between statements", p.current.Span)
 }
 func (p *parser) statement() ast.Stmt {
 	start := p.current.Span
+	if p.inStep && p.isWord("require") {
+		p.advance()
+		condition := p.expression(0)
+		p.terminator()
+		n := &ast.Require{Span: p.span(start), Condition: condition}
+		p.record(n, condition)
+		return n
+	}
 	switch p.current.Kind {
 	case token.Let:
 		p.advance()
@@ -120,12 +143,11 @@ func (p *parser) statement() ast.Stmt {
 		p.record(n, value)
 		return n
 	case token.Return:
-		p.advance()
-		value := p.expression(0)
-		p.terminator()
-		n := &ast.Return{Span: p.span(start), Value: value}
-		p.record(n, value)
-		return n
+		if p.inStep {
+			p.fail("E_SYNTAX", "return belongs after the final step", start)
+			return nil
+		}
+		return p.returnStatement()
 	case token.If:
 		p.advance()
 		p.expect(token.LParen)
@@ -154,6 +176,15 @@ func (p *parser) statement() ast.Stmt {
 		p.record(n, value)
 		return n
 	}
+}
+func (p *parser) returnStatement() *ast.Return {
+	start := p.current.Span
+	p.expect(token.Return)
+	value := p.expression(0)
+	p.terminator()
+	n := &ast.Return{Span: p.span(start), Value: value}
+	p.record(n, value)
+	return n
 }
 func (p *parser) block() *ast.Block {
 	if !p.enter() {
@@ -265,7 +296,10 @@ func (p *parser) function() ast.Expr {
 		}
 	}
 	p.expect(token.RParen)
+	inStep := p.inStep
+	p.inStep = false
 	n.Body = p.block()
+	p.inStep = inStep
 	n.Span = p.span(start)
 	p.record(n, n.Body)
 	return n

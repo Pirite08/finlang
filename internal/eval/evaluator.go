@@ -8,14 +8,16 @@ import (
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/decimal"
 	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/fx"
 	"github.com/Pirite08/finlang/internal/trace"
 )
 
 type Options struct {
-	Limits   config.Limits
-	Stdout   io.Writer
-	JSONMode bool
-	Trace    trace.Sink
+	Limits     config.Limits
+	Stdout     io.Writer
+	JSONMode   bool
+	Trace      trace.Sink
+	FXProvider fx.Provider
 }
 
 type Evaluator struct {
@@ -23,6 +25,8 @@ type Evaluator struct {
 	steps         int
 	callDepth     int
 	traceSequence int
+	rule          *ruleExecution
+	fxQuotes      []fx.Quote
 }
 
 func New(options Options) *Evaluator {
@@ -41,6 +45,9 @@ type outcome struct {
 }
 
 func (e *Evaluator) Run(program *ast.Program, env *Environment) (Value, error) {
+	if program.Rule != nil {
+		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT_REQUIRED", "use RunRule to supply a rule input"), program.Rule.Span)
+	}
 	result, err := e.statements(program.Statements, env)
 	if err != nil {
 		return nil, err
@@ -102,7 +109,24 @@ func (e *Evaluator) statement(node ast.Stmt, env *Environment) (result outcome, 
 		if err = env.Define(node.Name, value); err != nil {
 			return outcome{}, err
 		}
+		if e.rule != nil && e.rule.step != "" {
+			e.emit(trace.Event{Kind: "binding", Span: node.GetSpan(), Binding: node.Name}, nil, value)
+		}
 		return outcome{value: UnitValue{}}, nil
+	case *ast.Require:
+		condition, err := e.expression(node.Condition, env)
+		if err != nil {
+			return outcome{}, err
+		}
+		truth, ok := condition.(BoolValue)
+		if !ok {
+			return outcome{}, typeError("require condition", condition)
+		}
+		e.emit(trace.Event{Kind: "require", Span: node.GetSpan()}, nil, truth)
+		if !truth {
+			return outcome{}, diagnostic.New("E_REQUIRE_FAILED", "required condition evaluated to false")
+		}
+		return outcome{value: truth}, nil
 	case *ast.ExpressionStatement:
 		value, err := e.expression(node.Expression, env)
 		return outcome{value: value}, err
@@ -163,7 +187,7 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		if value, ok := env.Lookup(node.Name); ok {
 			return value, nil
 		}
-		if isBuiltin(node.Name) {
+		if e.isBuiltin(node.Name) {
 			return builtinValue{name: node.Name}, nil
 		}
 		return nil, diagnostic.New("E_UNDEFINED_NAME", fmt.Sprintf("name %q is not defined", node.Name))

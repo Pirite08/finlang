@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/contract"
@@ -14,7 +15,7 @@ import (
 	"github.com/Pirite08/finlang/internal/repl"
 )
 
-const Version = "v0.3.0"
+const Version = "v0.4.0"
 const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 	"  no arguments  start the single-line REPL\n" +
 	"  -file path    execute a UTF-8 source file\n" +
@@ -22,11 +23,17 @@ const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 	"  -contract path  JSON contract (required with -json)\n" +
 	"  -input path     JSON inputs (required with -json)\n" +
 	"  -trace path     write bounded JSONL calculation records\n" +
+	"  -fx-fixed path  use a saved FX quote for a rule\n" +
+	"  -fx-url URL     request a latest FX quote from a JSON endpoint\n" +
+	"  -fx-provider alpha-vantage  use FINLANG_ALPHA_VANTAGE_API_KEY\n" +
+	"  -fx-max-age duration  maximum age for a live quote (default 5m)\n" +
 	"  -version      print the version\n" +
 	"  -h            show help\n"
 
 type command struct {
 	file, contract, input, trace, rule string
+	fxFixed, fxURL, fxProvider         string
+	fxMaxAge                           time.Duration
 	json                               bool
 	stdout, stderr                     io.Writer
 }
@@ -40,6 +47,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags.StringVar(&c.contract, "contract", "", "JSON contract")
 	flags.StringVar(&c.input, "input", "", "JSON inputs")
 	flags.StringVar(&c.trace, "trace", "", "JSONL trace output")
+	flags.StringVar(&c.fxFixed, "fx-fixed", "", "saved FX quote")
+	flags.StringVar(&c.fxURL, "fx-url", "", "live FX JSON endpoint")
+	flags.StringVar(&c.fxProvider, "fx-provider", "", "live FX provider")
+	flags.DurationVar(&c.fxMaxAge, "fx-max-age", 5*time.Minute, "maximum live FX quote age")
 	flags.BoolVar(&c.json, "json", false, "structured result mode")
 	version := flags.Bool("version", false, "print version")
 	wantHelp := flags.Bool("h", false, "show help")
@@ -68,7 +79,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	for name, path := range map[string]string{"file": c.file, "contract": c.contract, "input": c.input, "trace": c.trace} {
+	for name, path := range map[string]string{"file": c.file, "contract": c.contract, "input": c.input, "trace": c.trace, "fx-fixed": c.fxFixed, "fx-url": c.fxURL, "fx-provider": c.fxProvider} {
 		if provided[name] && path == "" {
 			return c.fail(diagnostic.New("E_CLI_USAGE", "-"+name+" requires a nonempty path"), 2)
 		}
@@ -79,6 +90,9 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	} else if provided["contract"] || provided["input"] {
 		return c.fail(diagnostic.New("E_CLI_USAGE", "-contract and -input require -json"), 2)
+	}
+	if err := c.validateFXFlags(provided["fx-max-age"]); err != nil {
+		return c.fail(err, 2)
 	}
 	limits := config.DefaultLimits()
 	if c.file == "" {

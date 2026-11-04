@@ -15,7 +15,7 @@ func TestUsage(t *testing.T) {
 		code   int
 		output string
 	}{
-		{[]string{"-version"}, 0, "fin v0.3.0"},
+		{[]string{"-version"}, 0, "fin v0.4.0"},
 		{[]string{"-h"}, 0, "Usage:"},
 		{[]string{"-unknown"}, 2, ""},
 		{[]string{"unexpected"}, 2, ""},

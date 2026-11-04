@@ -10,6 +10,9 @@ func (e *Evaluator) emit(event trace.Event, inputs []Value, result Value) {
 	}
 	e.traceSequence++
 	event.Sequence = e.traceSequence
+	if e.rule != nil {
+		event.Step = e.rule.step
+	}
 	event.Inputs = make([]string, len(inputs))
 	for i, value := range inputs {
 		event.Inputs[i] = value.Inspect()

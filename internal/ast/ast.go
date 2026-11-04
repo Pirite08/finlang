@@ -12,7 +12,26 @@ type Stmt interface {
 	Node
 	stmtNode()
 }
-type Program struct{ Statements []Stmt }
+type Program struct {
+	Statements []Stmt
+	Rule       *Rule
+}
+type Rule struct {
+	Span          diagnostic.Span
+	Name          string
+	Input, Output MoneyDecl
+	Steps         []*Step
+	Return        *Return
+}
+type MoneyDecl struct {
+	Span           diagnostic.Span
+	Name, Currency string
+}
+type Step struct {
+	Span diagnostic.Span
+	Name string
+	Body *Block
+}
 type Number struct {
 	Span    diagnostic.Span
 	Literal string
@@ -69,11 +88,18 @@ type Return struct {
 	Span  diagnostic.Span
 	Value Expr
 }
+type Require struct {
+	Span      diagnostic.Span
+	Condition Expr
+}
 type ExpressionStatement struct {
 	Span       diagnostic.Span
 	Expression Expr
 }
 
+func (n *Rule) GetSpan() diagnostic.Span                { return n.Span }
+func (n *MoneyDecl) GetSpan() diagnostic.Span           { return n.Span }
+func (n *Step) GetSpan() diagnostic.Span                { return n.Span }
 func (n *Number) GetSpan() diagnostic.Span              { return n.Span }
 func (n *String) GetSpan() diagnostic.Span              { return n.Span }
 func (n *Bool) GetSpan() diagnostic.Span                { return n.Span }
@@ -86,6 +112,7 @@ func (n *Block) GetSpan() diagnostic.Span               { return n.Span }
 func (n *Let) GetSpan() diagnostic.Span                 { return n.Span }
 func (n *If) GetSpan() diagnostic.Span                  { return n.Span }
 func (n *Return) GetSpan() diagnostic.Span              { return n.Span }
+func (n *Require) GetSpan() diagnostic.Span             { return n.Span }
 func (n *ExpressionStatement) GetSpan() diagnostic.Span { return n.Span }
 func (*Number) exprNode()                               {}
 func (*String) exprNode()                               {}
@@ -98,4 +125,5 @@ func (*Function) exprNode()                             {}
 func (*Let) stmtNode()                                  {}
 func (*If) stmtNode()                                   {}
 func (*Return) stmtNode()                               {}
+func (*Require) stmtNode()                              {}
 func (*ExpressionStatement) stmtNode()                  {}
