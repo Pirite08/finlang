@@ -1,0 +1,99 @@
+package eval
+
+import (
+	"bytes"
+	"errors"
+	"testing"
+
+	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/fx"
+	"github.com/Pirite08/finlang/internal/parser"
+	"github.com/Pirite08/finlang/internal/trace"
+)
+
+func TestRuleOnlyRejectsPolicyViolationsBeforeSteps(t *testing.T) {
+	for _, tc := range []struct{ name, statement string }{
+		{"print in dead branch", `if (false) { let ignored = print(amount) }`},
+		{"print in unselected else", `if (true) { require true } else { print(amount) }`},
+		{"function literal", `let helper = fn() { return amount; }`},
+		{"function value", `let helper = round`},
+		{"new builtin through an alias", `let helper = sum; let ignored = helper(1, 2)`},
+		{"indirect call", `let ignored = money("USD", 1)()`},
+		{"unknown call", `let ignored = helper(amount)`},
+		{"builtin shadowing", `let rate = 1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := parseRuleForTest(t, `rule checked {
+				input amount in "USD"
+				output result in "USD"
+				step earlier { let result = amount }
+				step checked { `+tc.statement+` }
+				return result
+			}`)
+			recorder := trace.NewRecorder(100)
+			var output bytes.Buffer
+			evaluator := New(Options{RuleOnly: true, Trace: recorder, Stdout: &output})
+			_, err := evaluator.RunRule(rule, ruleMoney(t, "USD", "10"))
+			var typed *diagnostic.Error
+			if !errors.As(err, &typed) || typed.Code != "E_RULE_POLICY" || typed.Span == nil || typed.Span.Line != 5 {
+				t.Fatalf("expected positioned policy error, got %v", err)
+			}
+			if len(recorder.Events()) != 0 || output.Len() != 0 {
+				t.Fatalf("executed before policy rejection: output=%q events=%+v", output.String(), recorder.Events())
+			}
+		})
+	}
+}
+
+func TestRuleOnlyRejectsLiveProviderBeforeSteps(t *testing.T) {
+	recorder := trace.NewRecorder(100)
+	calls := 0
+	evaluator := New(Options{RuleOnly: true, Trace: recorder, FXProvider: quoteSource(func(base, target string) (fx.Quote, error) {
+		calls++
+		return fixedQuote(base, target, "1350.25"), nil
+	})})
+	_, err := evaluator.RunRule(parseRuleForTest(t, exchangeRule), ruleMoney(t, "USD", "10"))
+	if diagnostic.CodeOf(err) != "E_RULE_POLICY" || calls != 0 || len(recorder.Events()) != 0 {
+		t.Fatalf("live provider was not rejected before evaluation: err=%v calls=%d events=%+v", err, calls, recorder.Events())
+	}
+}
+
+func TestRuleOnlyUsesValidatedSnapshot(t *testing.T) {
+	quote := fixedQuote("USD", "KRW", "1350.25")
+	snapshot, err := fx.NewSnapshot([]fx.Quote{quote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator := New(Options{RuleOnly: true, FXSnapshot: snapshot})
+	rule := parseRuleForTest(t, exchangeRule)
+	input := ruleMoney(t, "USD", "10")
+	value, err := evaluator.RunRule(rule, input)
+	if err != nil || value.Inspect() != "KRW 13502" {
+		t.Fatalf("value=%v err=%v", value, err)
+	}
+	if quotes := evaluator.FXQuotes(); len(quotes) != 1 || quotes[0] != quote {
+		t.Fatalf("wrong recorded quote: %+v", quotes)
+	}
+	if _, err := New(Options{RuleOnly: true}).RunRule(rule, input); diagnostic.CodeOf(err) != "E_FX_PROVIDER" {
+		t.Fatalf("missing snapshot: %v", err)
+	}
+}
+
+func TestRuleOnlyRejectsOtherEvaluatorEntryPoints(t *testing.T) {
+	program, err := parser.Parse("ordinary.fin", `fn() { return 1; }`, config.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator := New(Options{RuleOnly: true})
+	if _, err := evaluator.Run(program, NewEnvironment(nil)); diagnostic.CodeOf(err) != "E_RULE_POLICY" {
+		t.Fatalf("standalone program was not rejected: %v", err)
+	}
+	closure, err := New(Options{}).Run(program, NewEnvironment(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := evaluator.Call(closure, nil, diagnostic.Span{}); diagnostic.CodeOf(err) != "E_RULE_POLICY" {
+		t.Fatalf("function value call was not rejected: %v", err)
+	}
+}

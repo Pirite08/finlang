@@ -13,11 +13,20 @@ func NewRecorder(maxEvents int) *Recorder {
 	return &Recorder{maxEvents: maxEvents}
 }
 
+// AcceptEvent checks an attempted record before its payload is constructed.
+// A rejected attempt marks the recorder truncated.
+func (r *Recorder) AcceptEvent() bool {
+	if len(r.events) < r.maxEvents {
+		return true
+	}
+	r.truncated = true
+	return false
+}
+
 // Record assigns a contiguous sequence and takes ownership of a copy of event.
 // An attempted event beyond the limit marks truncation and is discarded.
 func (r *Recorder) Record(event Event) {
-	if len(r.events) >= r.maxEvents {
-		r.truncated = true
+	if !r.AcceptEvent() {
 		return
 	}
 	event.Sequence = len(r.events) + 1

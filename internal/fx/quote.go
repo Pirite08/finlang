@@ -1,5 +1,4 @@
-// Package fx loads exact, directional exchange-rate quotes. Providers fetch a
-// quote on each call; the interpreter owns the snapshot for one execution.
+// Package fx loads exact, directional exchange-rate quotes from live and saved sources.
 package fx
 
 import (
@@ -18,7 +17,11 @@ import (
 	"github.com/Pirite08/finlang/internal/diagnostic"
 )
 
-const maxQuoteBytes = 4096
+const (
+	maxQuoteBytes     = 4096
+	maxSnapshotQuotes = 2
+	maxSnapshotBytes  = 2*maxQuoteBytes + 3
+)
 
 // The Go time parser also accepts comma fractions and offsets such as +00:60.
 // Check the wire shape before parsing so a malformed quote cannot enter a trace.
@@ -69,30 +72,83 @@ func (q Quote) Validate(base, target string, limits config.Limits) (decimal.Deci
 	return rate, nil
 }
 
-type fixedProvider struct{ quote Quote }
+// Snapshot holds validated quotes and performs lookups entirely in memory.
+type Snapshot struct {
+	quotes []Quote
+}
 
 // LoadFixed loads one quote for reproducible runs, including historical replay.
-func LoadFixed(r io.Reader) (Provider, error) {
+func LoadFixed(r io.Reader) (*Snapshot, error) {
 	quote, err := decodeQuote(r)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := quote.Validate(quote.Base, quote.Target, config.DefaultLimits()); err != nil {
+	return NewSnapshot([]Quote{quote})
+}
+
+// LoadSnapshot loads a JSON array of up to two exact, directional quotes.
+func LoadSnapshot(r io.Reader) (*Snapshot, error) {
+	d, err := quoteDecoder(r, maxSnapshotBytes)
+	if err != nil {
 		return nil, err
 	}
-	return fixedProvider{quote: quote}, nil
-}
-
-func (p fixedProvider) Latest(base, target string) (Quote, error) {
-	if base != p.quote.Base || target != p.quote.Target {
-		return Quote{}, pairError()
+	if token, err := d.Token(); err != nil || token != json.Delim('[') {
+		return nil, diagnostic.New("E_FX_QUOTE", "an FX snapshot must be an array of quotes")
 	}
-	return p.quote, nil
+	var quotes []Quote
+	for d.More() {
+		if len(quotes) == maxSnapshotQuotes {
+			return nil, snapshotSizeError()
+		}
+		quote, err := decodeQuoteObject(d)
+		if err != nil {
+			return nil, err
+		}
+		quotes = append(quotes, quote)
+	}
+	if token, err := d.Token(); err != nil || token != json.Delim(']') {
+		return nil, diagnostic.New("E_FX_QUOTE", "invalid FX snapshot array")
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return nil, diagnostic.New("E_FX_QUOTE", "unexpected data after FX snapshot")
+	}
+	return NewSnapshot(quotes)
 }
 
-func quoteDecoder(r io.Reader) (*json.Decoder, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxQuoteBytes+1))
-	if err != nil || len(data) > maxQuoteBytes || !utf8.Valid(data) {
+// NewSnapshot validates and copies recorded quotes without applying live expiry.
+func NewSnapshot(quotes []Quote) (*Snapshot, error) {
+	if len(quotes) > maxSnapshotQuotes {
+		return nil, snapshotSizeError()
+	}
+	limits := config.DefaultLimits()
+	for i, quote := range quotes {
+		if _, err := quote.Validate(quote.Base, quote.Target, limits); err != nil {
+			return nil, err
+		}
+		if i > 0 && quote.Base == quotes[0].Base && quote.Target == quotes[0].Target {
+			return nil, diagnostic.New("E_FX_QUOTE", "an FX snapshot cannot repeat a direction")
+		}
+	}
+	return &Snapshot{quotes: slices.Clone(quotes)}, nil
+}
+
+func snapshotSizeError() error {
+	return diagnostic.New("E_FX_QUOTE", "an FX snapshot can contain at most two directions")
+}
+
+// Latest returns the stored quote for the requested direction.
+func (s *Snapshot) Latest(base, target string) (Quote, error) {
+	for _, quote := range s.quotes {
+		if base == quote.Base && target == quote.Target {
+			return quote, nil
+		}
+	}
+	return Quote{}, pairError()
+}
+
+func quoteDecoder(r io.Reader, maxBytes int64) (*json.Decoder, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil || int64(len(data)) > maxBytes || !utf8.Valid(data) {
 		return nil, quoteError()
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
@@ -130,15 +186,23 @@ func stringFields(d *json.Decoder, keys ...string) (map[string]string, error) {
 }
 
 func decodeQuote(r io.Reader) (Quote, error) {
-	d, err := quoteDecoder(r)
+	d, err := quoteDecoder(r, maxQuoteBytes)
 	if err != nil {
 		return Quote{}, err
 	}
-	fields, err := stringFields(d, "base", "target", "rate", "source", "as_of")
-	if err != nil || len(fields) != 5 {
-		return Quote{}, quoteError()
+	quote, err := decodeQuoteObject(d)
+	if err != nil {
+		return Quote{}, err
 	}
 	if _, err := d.Token(); err != io.EOF {
+		return Quote{}, quoteError()
+	}
+	return quote, nil
+}
+
+func decodeQuoteObject(d *json.Decoder) (Quote, error) {
+	fields, err := stringFields(d, "base", "target", "rate", "source", "as_of")
+	if err != nil || len(fields) != 5 {
 		return Quote{}, quoteError()
 	}
 	if !quoteTimestamp.MatchString(fields["as_of"]) {

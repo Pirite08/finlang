@@ -3,7 +3,9 @@ package repl
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -23,6 +25,51 @@ func TestREPLState(t *testing.T) {
 	if len(strings.Split(strings.TrimSpace(errOut.String()), "\n")) != 2 {
 		t.Fatalf("stderr=%q", &errOut)
 	}
+}
+
+func TestREPLReleasesLongLinesWhileKeepingBindings(t *testing.T) {
+	var script strings.Builder
+	padding := strings.Repeat("x", 64<<10)
+	for i := 0; i < 16; i++ {
+		fmt.Fprintf(&script, "let value%d = 1; // %s\n", i, padding)
+		fmt.Fprintf(&script, "let add%d = fn(x) { return x + 1; }; // %s\n", i, padding)
+	}
+	script.WriteString("add15(value0)\n")
+	gate := &pausedEOF{ready: make(chan struct{}), release: make(chan struct{})}
+	input := io.MultiReader(strings.NewReader(script.String()), gate)
+	var out, errOut bytes.Buffer
+	var before, held runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	done := make(chan error, 1)
+	go func() { done <- Run(input, &out, &errOut, config.DefaultLimits()) }()
+	select {
+	case <-gate.ready:
+	case err := <-done:
+		t.Fatalf("REPL stopped before the memory check: %v", err)
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&held)
+	close(gate.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	runtime.KeepAlive(&script)
+	if out.String() != "2\n" || errOut.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", &out, &errOut)
+	}
+	// The 2 MiB of comments should be collectible while the REPL waits for input.
+	if delta := int64(held.HeapAlloc) - int64(before.HeapAlloc); delta > 512<<10 {
+		t.Fatalf("open session retained %d additional heap bytes", delta)
+	}
+}
+
+type pausedEOF struct{ ready, release chan struct{} }
+
+func (r *pausedEOF) Read([]byte) (int, error) {
+	close(r.ready)
+	<-r.release
+	return 0, io.EOF
 }
 
 func TestREPLBoundedLineContinues(t *testing.T) {

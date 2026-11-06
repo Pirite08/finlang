@@ -35,7 +35,7 @@ func Run(in io.Reader, out, errOut io.Writer, limits config.Limits) error {
 		if oversized {
 			runErr = diagnostic.WithSpan(diagnostic.New("E_SOURCE_LIMIT", "line exceeds maximum source byte length"), diagnostic.Span{File: file, Line: 1, Column: 1})
 		} else {
-			program, err := parser.Parse(file, string(source), limits)
+			program, err := parser.ParseDetached(file, string(source), limits)
 			runErr = err
 			if err == nil {
 				value, err := eval.New(eval.Options{Limits: limits, Stdout: out}).Run(program, env)

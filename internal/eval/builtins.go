@@ -10,28 +10,82 @@ import (
 	"github.com/Pirite08/finlang/internal/trace"
 )
 
+type builtinScope uint8
+
+const (
+	builtinStandard builtinScope = iota
+	builtinFX
+	builtinOutput
+	// New builtin names can overlap with bindings in existing rules.
+	builtinBasic
+)
+
+type builtinSpec struct {
+	scope    builtinScope
+	arity    int
+	variadic bool
+	run      func(*Evaluator, string, []Value, diagnostic.Span) (Value, error)
+}
+
+var builtins = map[string]builtinSpec{
+	"print":        {scope: builtinOutput, arity: 1, run: (*Evaluator).standardBuiltin},
+	"round":        {scope: builtinStandard, arity: 3, run: (*Evaluator).standardBuiltin},
+	"div":          {scope: builtinStandard, arity: 4, run: (*Evaluator).standardBuiltin},
+	"format":       {scope: builtinStandard, arity: 2, run: (*Evaluator).standardBuiltin},
+	"money":        {scope: builtinStandard, arity: 2, run: (*Evaluator).standardBuiltin},
+	"settle":       {scope: builtinStandard, arity: 3, run: (*Evaluator).standardBuiltin},
+	"format_money": {scope: builtinStandard, arity: 2, run: (*Evaluator).standardBuiltin},
+	"rate":         {scope: builtinFX, arity: 2, run: (*Evaluator).fxBuiltin},
+	"convert":      {scope: builtinFX, arity: 2, run: (*Evaluator).fxBuiltin},
+	"abs":          {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"sign":         {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"min":          {scope: builtinBasic, arity: 1, variadic: true, run: (*Evaluator).basicBuiltin},
+	"max":          {scope: builtinBasic, arity: 1, variadic: true, run: (*Evaluator).basicBuiltin},
+	"clamp":        {scope: builtinBasic, arity: 3, run: (*Evaluator).basicBuiltin},
+	"sum":          {scope: builtinBasic, arity: 1, variadic: true, run: (*Evaluator).basicBuiltin},
+	"floor":        {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"ceil":         {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"trunc":        {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"decimal":      {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"amount":       {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"currency":     {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+}
+
 func (e *Evaluator) isBuiltin(name string) bool {
-	switch name {
-	case "print", "round", "div", "format", "money", "settle", "format_money":
-		return true
-	case "rate", "convert":
-		return e.rule != nil
-	}
-	return false
+	spec, known := builtins[name]
+	return known && (spec.scope != builtinFX || e.rule != nil)
 }
 
 func arityError(name string, want, got int) error {
 	return diagnostic.New("E_ARITY", fmt.Sprintf("%s expects %d arguments; received %d", name, want, got))
 }
 
+func (spec builtinSpec) checkArity(name string, count int) error {
+	if spec.variadic {
+		if count < spec.arity {
+			return diagnostic.New("E_ARITY", fmt.Sprintf("%s expects at least %d arguments; received %d", name, spec.arity, count))
+		}
+	} else if count != spec.arity {
+		return arityError(name, spec.arity, count)
+	}
+	return nil
+}
+
 func (e *Evaluator) builtin(name string, args []Value, span diagnostic.Span) (Value, error) {
-	if name == "rate" || name == "convert" {
-		return e.fxBuiltin(name, args, span)
+	spec, known := builtins[name]
+	if !known {
+		return nil, diagnostic.New("E_INTERNAL", "unknown builtin")
 	}
-	expected := map[string]int{"print": 1, "round": 3, "div": 4, "format": 2, "money": 2, "settle": 3, "format_money": 2}
-	if len(args) != expected[name] {
-		return nil, arityError(name, expected[name], len(args))
+	if spec.scope == builtinFX && e.rule == nil {
+		return nil, diagnostic.New("E_FX_CONTEXT", "FX operations require a rule execution")
 	}
+	if err := spec.checkArity(name, len(args)); err != nil {
+		return nil, err
+	}
+	return spec.run(e, name, args, span)
+}
+
+func (e *Evaluator) standardBuiltin(name string, args []Value, span diagnostic.Span) (Value, error) {
 	if name == "print" {
 		if e.options.JSONMode {
 			return nil, diagnostic.New("E_OUTPUT_SIDE_EFFECT", "print is unavailable in JSON result mode")
@@ -58,7 +112,7 @@ func (e *Evaluator) builtin(name string, args []Value, span diagnostic.Span) (Va
 			return nil, err
 		}
 		result := StringValue(formatted)
-		e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits}, []Value{args[0]}, result)
+		e.emit(trace.Event{Kind: name, Span: span}, args[:1], result, digits)
 		return result, nil
 	}
 	scaleIndex := 1
@@ -91,11 +145,7 @@ func (e *Evaluator) builtin(name string, args []Value, span diagnostic.Span) (Va
 		return nil, err
 	}
 	result := DecimalValue{Value: rounded.Value}
-	inputs := []Value{args[0]}
-	if name == "div" {
-		inputs = append(inputs, args[1])
-	}
-	e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits, Mode: string(mode), Inexact: rounded.Inexact}, inputs, result)
+	e.emit(trace.Event{Kind: name, Span: span, Mode: string(mode), Inexact: rounded.Inexact}, args[:scaleIndex], result, digits)
 	return result, nil
 }
 

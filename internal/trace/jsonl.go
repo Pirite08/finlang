@@ -5,18 +5,26 @@ import (
 	"io"
 
 	"github.com/Pirite08/finlang/internal/config"
+	"github.com/Pirite08/finlang/internal/diagnostic"
 	"github.com/Pirite08/finlang/internal/fx"
 )
 
 // Header identifies the reproducible inputs and settings for an execution.
 type Header struct {
-	SchemaVersion   string          `json:"schema_version"`
-	ProgramSHA256   string          `json:"program_sha256"`
-	ContractVersion string          `json:"contract_version"`
-	RunnerVersion   string          `json:"runner_version"`
-	Input           json.RawMessage `json:"input"`
-	Limits          config.Limits   `json:"limits"`
-	FXQuotes        []fx.Quote      `json:"fx_quotes,omitempty"`
+	SchemaVersion    string             `json:"schema_version"`
+	ProgramSHA256    string             `json:"program_sha256"`
+	ContractVersion  string             `json:"contract_version"`
+	RunnerVersion    string             `json:"runner_version"`
+	Input            json.RawMessage    `json:"input"`
+	Limits           config.Limits      `json:"limits"`
+	FXQuotes         []fx.Quote         `json:"fx_quotes,omitempty"`
+	RunID            string             `json:"run_id,omitempty"`
+	Rule             string             `json:"rule,omitempty"`
+	ContractSHA256   string             `json:"contract_sha256,omitempty"`
+	FXPolicy         *fx.PolicySnapshot `json:"fx_policy,omitempty"`
+	ExecutionProfile string             `json:"execution_profile,omitempty"`
+	Result           json.RawMessage    `json:"result,omitempty"`
+	ErrorCode        diagnostic.Code    `json:"error_code,omitempty"`
 }
 
 // WriteJSONL writes a header, retained events, and a truncation summary.

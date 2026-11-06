@@ -28,7 +28,7 @@ func TestAlphaVantageNormalizesQuote(t *testing.T) {
 		}
 		return alphaResponse(alphaBody(rate, asOf)), nil
 	})}
-	provider, err := fx.NewAlphaVantage(key, client, time.Minute)
+	provider, err := fx.NewAlphaVantage(key, client, fx.LivePolicy{MaxAge: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +50,7 @@ func TestAlphaVantageSanitizesFailures(t *testing.T) {
 		{"provider limit", `{"Note":"quota exceeded for fixture-key"}`, "E_FX_FETCH"},
 		{"pair", strings.Replace(alphaBody("1350.25", now), `"KRW"`, `"USD"`, 1), "E_FX_PAIR"},
 		{"stale", alphaBody("1350.25", now.Add(-2*time.Minute)), "E_FX_STALE"},
+		{"outlier", alphaBody("1", now), "E_FX_OUTLIER"},
 		{"time zone", strings.Replace(alphaBody("1350.25", now), `"UTC"`, `"EST"`, 1), "E_FX_QUOTE"},
 		{"duplicate", strings.Replace(alphaBody("1350.25", now), `"5. Exchange Rate":"1350.25"`, `"5. Exchange Rate":"1350.25","5. Exchange Rate":"1000"`, 1), "E_FX_QUOTE"},
 	}
@@ -61,7 +62,7 @@ func TestAlphaVantageSanitizesFailures(t *testing.T) {
 				}
 				return alphaResponse(tc.body), nil
 			})}
-			provider, err := fx.NewAlphaVantage(key, client, time.Minute)
+			provider, err := fx.NewAlphaVantage(key, client, fx.LivePolicy{MaxAge: time.Minute})
 			if err != nil {
 				t.Fatal(err)
 			}

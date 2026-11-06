@@ -22,12 +22,6 @@ func (v fxQuoteValue) Inspect() string {
 }
 
 func (e *Evaluator) fxBuiltin(name string, args []Value, span diagnostic.Span) (Value, error) {
-	if e.rule == nil {
-		return nil, diagnostic.New("E_FX_CONTEXT", "FX operations require a rule execution")
-	}
-	if len(args) != 2 {
-		return nil, arityError(name, 2, len(args))
-	}
 	var result Value
 	if name == "rate" {
 		base, baseOK := args[0].(StringValue)
@@ -75,10 +69,19 @@ func (e *Evaluator) rate(pair currencyPair) (fxQuoteValue, error) {
 	if pair.base == pair.target {
 		return fxQuoteValue{}, diagnostic.New("E_FX_PAIR", "FX rate requires two different currencies")
 	}
-	if e.options.FXProvider == nil {
-		return fxQuoteValue{}, diagnostic.New("E_FX_PROVIDER", "no FX provider is configured")
+	var quote fx.Quote
+	var err error
+	if e.options.RuleOnly {
+		if e.options.FXSnapshot == nil {
+			return fxQuoteValue{}, diagnostic.New("E_FX_PROVIDER", "no prepared FX snapshot is configured")
+		}
+		quote, err = e.options.FXSnapshot.Latest(pair.base, pair.target)
+	} else {
+		if e.options.FXProvider == nil {
+			return fxQuoteValue{}, diagnostic.New("E_FX_PROVIDER", "no FX provider is configured")
+		}
+		quote, err = e.options.FXProvider.Latest(pair.base, pair.target)
 	}
-	quote, err := e.options.FXProvider.Latest(pair.base, pair.target)
 	if err != nil {
 		return fxQuoteValue{}, err
 	}

@@ -19,11 +19,10 @@ func New(currency string, amount decimal.Decimal) (Money, error) {
 	if err := validateCurrency(currency); err != nil {
 		return Money{}, err
 	}
-	checked, err := decimal.Add(amount, decimal.Decimal{}, config.DefaultLimits())
-	if err != nil {
+	if err := amount.Validate(config.DefaultLimits()); err != nil {
 		return Money{}, err
 	}
-	return Money{currency, checked}, nil
+	return Money{currency, amount}, nil
 }
 
 func (m Money) Currency() string        { return m.currency }

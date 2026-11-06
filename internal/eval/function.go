@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+
 	"github.com/Pirite08/finlang/internal/diagnostic"
 	"github.com/Pirite08/finlang/internal/trace"
 )
@@ -13,7 +14,11 @@ func (e *Evaluator) Call(function Value, args []Value, span diagnostic.Span) (va
 			err = diagnostic.WithSpan(err, span)
 		}
 	}()
-	if builtin, ok := function.(builtinValue); ok {
+	builtin, isBuiltin := function.(builtinValue)
+	if e.options.RuleOnly && (e.rule == nil || !isBuiltin || !ruleBuiltin(builtin.name)) {
+		return nil, diagnostic.New("E_RULE_POLICY", "only approved calculation functions can be called in a rule")
+	}
+	if isBuiltin {
 		return e.builtin(builtin.name, args, span)
 	}
 	closure, ok := function.(*FunctionValue)

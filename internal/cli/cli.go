@@ -12,10 +12,11 @@ import (
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/contract"
 	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/fx"
 	"github.com/Pirite08/finlang/internal/repl"
 )
 
-const Version = "v0.4.0"
+const Version = "v0.5.0"
 const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 	"  no arguments  start the single-line REPL\n" +
 	"  -file path    execute a UTF-8 source file\n" +
@@ -23,19 +24,28 @@ const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 	"  -contract path  JSON contract (required with -json)\n" +
 	"  -input path     JSON inputs (required with -json)\n" +
 	"  -trace path     write bounded JSONL calculation records\n" +
+	"  -ops-log path   append a minimal JSONL execution status\n" +
+	"  -audit path     create a sensitive JSONL audit record for a JSON execution\n" +
+	"  -replay-audit path  replay a successful audit offline instead of -input and FX options\n" +
+	"  -rule-only     allow only preflight-checked rules and supplied FX snapshots\n" +
 	"  -fx-fixed path  use a saved FX quote for a rule\n" +
+	"  -fx-snapshot path  use a JSON array of saved quotes with -rule-only\n" +
 	"  -fx-url URL     request a latest FX quote from a JSON endpoint\n" +
 	"  -fx-provider alpha-vantage  use FINLANG_ALPHA_VANTAGE_API_KEY\n" +
 	"  -fx-max-age duration  maximum age for a live quote (default 5m)\n" +
+	"  -fx-min-rate decimal  minimum live rate in KRW per USD (default " + fx.DefaultMinRate + ")\n" +
+	"  -fx-max-rate decimal  maximum live rate in KRW per USD (default " + fx.DefaultMaxRate + ")\n" +
 	"  -version      print the version\n" +
 	"  -h            show help\n"
 
 type command struct {
-	file, contract, input, trace, rule string
-	fxFixed, fxURL, fxProvider         string
-	fxMaxAge                           time.Duration
-	json                               bool
-	stdout, stderr                     io.Writer
+	file, contract, input, trace, rule     string
+	opsLog, audit, replayAudit             string
+	fxFixed, fxSnapshot, fxURL, fxProvider string
+	fxPolicy                               fx.LivePolicy
+	json, ruleOnly                         bool
+	stdout, stderr                         io.Writer
+	operationError                         *diagnostic.Code
 }
 
 // Run returns 0 on success, 1 for language/contract errors, 2 for usage/host I/O.
@@ -47,10 +57,17 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags.StringVar(&c.contract, "contract", "", "JSON contract")
 	flags.StringVar(&c.input, "input", "", "JSON inputs")
 	flags.StringVar(&c.trace, "trace", "", "JSONL trace output")
+	flags.StringVar(&c.opsLog, "ops-log", "", "minimal JSONL operational log")
+	flags.StringVar(&c.audit, "audit", "", "new JSONL audit file")
+	flags.StringVar(&c.replayAudit, "replay-audit", "", "successful JSONL audit to replay offline")
+	flags.BoolVar(&c.ruleOnly, "rule-only", false, "restricted rule execution without live FX")
 	flags.StringVar(&c.fxFixed, "fx-fixed", "", "saved FX quote")
+	flags.StringVar(&c.fxSnapshot, "fx-snapshot", "", "saved FX quote array for rule-only mode")
 	flags.StringVar(&c.fxURL, "fx-url", "", "live FX JSON endpoint")
 	flags.StringVar(&c.fxProvider, "fx-provider", "", "live FX provider")
-	flags.DurationVar(&c.fxMaxAge, "fx-max-age", 5*time.Minute, "maximum live FX quote age")
+	flags.DurationVar(&c.fxPolicy.MaxAge, "fx-max-age", 5*time.Minute, "maximum live FX quote age")
+	minRate := flags.String("fx-min-rate", fx.DefaultMinRate, "minimum live rate in KRW per USD")
+	maxRate := flags.String("fx-max-rate", fx.DefaultMaxRate, "maximum live rate in KRW per USD")
 	flags.BoolVar(&c.json, "json", false, "structured result mode")
 	version := flags.Bool("version", false, "print version")
 	wantHelp := flags.Bool("h", false, "show help")
@@ -79,25 +96,47 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	for name, path := range map[string]string{"file": c.file, "contract": c.contract, "input": c.input, "trace": c.trace, "fx-fixed": c.fxFixed, "fx-url": c.fxURL, "fx-provider": c.fxProvider} {
+	for name, path := range map[string]string{"file": c.file, "contract": c.contract, "input": c.input, "trace": c.trace, "ops-log": c.opsLog, "audit": c.audit, "replay-audit": c.replayAudit, "fx-fixed": c.fxFixed, "fx-snapshot": c.fxSnapshot, "fx-url": c.fxURL, "fx-provider": c.fxProvider} {
 		if provided[name] && path == "" {
 			return c.fail(diagnostic.New("E_CLI_USAGE", "-"+name+" requires a nonempty path"), 2)
 		}
 	}
 	if c.json {
-		if c.file == "" || c.contract == "" || c.input == "" {
-			return c.fail(diagnostic.New("E_CLI_USAGE", "-json requires -file, -contract and -input"), 2)
+		if c.file == "" || c.contract == "" || (c.input == "") == (c.replayAudit == "") {
+			return c.fail(diagnostic.New("E_CLI_USAGE", "-json requires -file, -contract and one of -input or -replay-audit"), 2)
 		}
-	} else if provided["contract"] || provided["input"] {
-		return c.fail(diagnostic.New("E_CLI_USAGE", "-contract and -input require -json"), 2)
+	} else if provided["contract"] || provided["input"] || c.audit != "" || c.replayAudit != "" {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "-contract, -input, -audit and -replay-audit require -json"), 2)
+	}
+	if c.audit != "" && c.trace != "" {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "choose one of -audit or -trace"), 2)
+	}
+	if c.replayAudit != "" && c.hasFXSource() {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "-replay-audit uses only the recorded quotes"), 2)
+	}
+	if c.ruleOnly && (!c.json || c.fxURL != "" || c.fxProvider != "") {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "-rule-only requires -json and does not allow live FX providers"), 2)
+	}
+	if c.fxSnapshot != "" && !c.ruleOnly {
+		return c.fail(diagnostic.New("E_CLI_USAGE", "-fx-snapshot requires -rule-only"), 2)
 	}
 	if err := c.validateFXFlags(provided["fx-max-age"]); err != nil {
 		return c.fail(err, 2)
 	}
+	if provided["fx-min-rate"] || provided["fx-max-rate"] {
+		if c.fxURL == "" && c.fxProvider == "" {
+			return c.fail(diagnostic.New("E_CLI_USAGE", "FX rate bounds require a live FX source"), 2)
+		}
+		bounds, err := fx.ParseRateBounds(*minRate, *maxRate)
+		if err != nil {
+			return c.fail(err, 2)
+		}
+		c.fxPolicy.Rates = bounds
+	}
 	limits := config.DefaultLimits()
 	if c.file == "" {
-		if c.trace != "" {
-			return c.fail(diagnostic.New("E_CLI_USAGE", "-trace requires a source file"), 2)
+		if c.trace != "" || c.opsLog != "" {
+			return c.fail(diagnostic.New("E_CLI_USAGE", "-trace and -ops-log require a source file"), 2)
 		}
 		if err := repl.Run(stdin, stdout, stderr, limits); err != nil {
 			return c.fail(err, 2)
@@ -140,14 +179,20 @@ func jsonErrorIntent(flags *flag.FlagSet, args []string) bool {
 }
 
 func (c command) fail(err error, code int) int {
+	errorCode := diagnostic.CodeOf(err)
 	if _, writeErr := fmt.Fprintln(c.stderr, err); writeErr != nil {
 		code = 2
+		errorCode = "E_OUTPUT_IO"
 	}
 	if c.json {
 		if writeErr := contract.EncodeError(c.stdout, c.rule, err); writeErr != nil {
 			fmt.Fprintln(c.stderr, writeErr)
-			return 2
+			code = 2
+			errorCode = "E_OUTPUT_IO"
 		}
+	}
+	if c.operationError != nil {
+		*c.operationError = errorCode
 	}
 	return code
 }

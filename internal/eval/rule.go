@@ -22,6 +22,14 @@ type ruleExecution struct {
 func (e *Evaluator) RunRule(rule *ast.Rule, input Value) (Value, error) {
 	e.steps = 0
 	e.fxQuotes = nil
+	if e.options.RuleOnly {
+		if err := validateRulePolicy(rule, e.options.Limits.MaxSyntaxDepth); err != nil {
+			return nil, err
+		}
+		if e.options.FXProvider != nil {
+			return nil, rulePolicyError(rule.Span, "rule-only mode accepts a prepared FX snapshot only")
+		}
+	}
 	for _, declaration := range []ast.MoneyDecl{rule.Input, rule.Output} {
 		if _, err := money.New(declaration.Currency, decimal.Decimal{}); err != nil {
 			return nil, diagnostic.WithSpan(err, declaration.Span)

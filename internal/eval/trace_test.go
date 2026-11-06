@@ -80,6 +80,33 @@ func TestTraceDoesNotChangeValues(t *testing.T) {
 	}
 }
 
+type traceInspectionCounter struct{ count int }
+
+func (*traceInspectionCounter) Kind() Kind { return KindString }
+func (v *traceInspectionCounter) Inspect() string {
+	v.count++
+	return "value"
+}
+
+func TestTraceSkipsInspectionAfterLimit(t *testing.T) {
+	recorder := trace.NewRecorder(1)
+	evaluator := New(Options{Trace: recorder})
+	value := &traceInspectionCounter{}
+	event := trace.Event{Kind: "test"}
+	evaluator.emit(event, []Value{value}, value, 0)
+	if value.count != 2 || recorder.Truncated() {
+		t.Fatalf("at limit: inspections = %d, truncated = %t", value.count, recorder.Truncated())
+	}
+	if scale := recorder.Events()[0].TargetScale; scale == nil || *scale != 0 {
+		t.Fatalf("recorded target scale = %v, want an explicit zero", scale)
+	}
+
+	evaluator.emit(event, []Value{value}, value, 0)
+	if value.count != 2 || !recorder.Truncated() {
+		t.Fatalf("past limit: inspections = %d, truncated = %t", value.count, recorder.Truncated())
+	}
+}
+
 func TestTraceContainsActualMoneyArithmetic(t *testing.T) {
 	result, recorder := traced("money(\"KRW\",1000)*0.05;", 100)
 	if result.err != nil {

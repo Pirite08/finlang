@@ -43,7 +43,7 @@ func (e *Evaluator) moneyBuiltin(name string, args []Value, span diagnostic.Span
 			return nil, err
 		}
 		formatted := StringValue(result)
-		e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits}, []Value{args[0]}, formatted)
+		e.emit(trace.Event{Kind: name, Span: span}, args[:1], formatted, digits)
 		return formatted, nil
 	}
 	modeText, ok := args[scaleIndex+1].(StringValue)
@@ -69,10 +69,6 @@ func (e *Evaluator) moneyBuiltin(name string, args []Value, span diagnostic.Span
 		return nil, err
 	}
 	wrapped := MoneyValue{Value: result}
-	inputs := []Value{args[0]}
-	if name == "div" {
-		inputs = append(inputs, args[1])
-	}
-	e.emit(trace.Event{Kind: name, Span: span, TargetScale: &digits, Mode: string(mode), Inexact: inexact}, inputs, wrapped)
+	e.emit(trace.Event{Kind: name, Span: span, Mode: string(mode), Inexact: inexact}, args[:scaleIndex], wrapped, digits)
 	return wrapped, nil
 }

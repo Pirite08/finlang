@@ -24,13 +24,13 @@ type alphaVantageProvider struct {
 
 // NewAlphaVantage retrieves the provider's CURRENCY_EXCHANGE_RATE quote using
 // an API key. The normalized quote retains the original decimal rate string.
-func NewAlphaVantage(apiKey string, client *http.Client, maxAge time.Duration) (Provider, error) {
+func NewAlphaVantage(apiKey string, client *http.Client, policy LivePolicy) (Provider, error) {
 	if apiKey == "" || len(apiKey) > 256 || strings.ContainsFunc(apiKey, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsControl(r)
 	}) {
 		return nil, diagnostic.New("E_FX_CONFIG", "a valid Alpha Vantage API key is required")
 	}
-	feed, err := newHTTPProvider(alphaEndpoint, client, maxAge)
+	feed, err := newHTTPProvider(alphaEndpoint, client, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (p *alphaVantageProvider) Latest(base, target string) (Quote, error) {
 }
 
 func decodeAlphaVantage(r io.Reader) (Quote, error) {
-	d, err := quoteDecoder(r)
+	d, err := quoteDecoder(r, maxQuoteBytes)
 	if err != nil {
 		return Quote{}, err
 	}

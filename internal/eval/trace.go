@@ -2,16 +2,24 @@ package eval
 
 import "github.com/Pirite08/finlang/internal/trace"
 
-// emit serializes values only for an enabled sink. The sink receives no mutable
-// runtime values, so recording cannot change the calculation.
-func (e *Evaluator) emit(event trace.Event, inputs []Value, result Value) {
-	if e.options.Trace == nil {
+// emit serializes values and an optional target scale only for a sink that will
+// record the event. The sink receives no mutable runtime values.
+func (e *Evaluator) emit(event trace.Event, inputs []Value, result Value, targetScale ...uint32) {
+	sink := e.options.Trace
+	if sink == nil {
+		return
+	}
+	if recorder, ok := sink.(*trace.Recorder); ok && !recorder.AcceptEvent() {
 		return
 	}
 	e.traceSequence++
 	event.Sequence = e.traceSequence
 	if e.rule != nil {
 		event.Step = e.rule.step
+	}
+	if len(targetScale) > 0 {
+		scale := targetScale[0]
+		event.TargetScale = &scale
 	}
 	event.Inputs = make([]string, len(inputs))
 	for i, value := range inputs {
@@ -24,5 +32,5 @@ func (e *Evaluator) emit(event trace.Event, inputs []Value, result Value) {
 	if m, ok := result.(MoneyValue); ok {
 		event.Currency = m.Value.Currency()
 	}
-	e.options.Trace.Record(event)
+	sink.Record(event)
 }

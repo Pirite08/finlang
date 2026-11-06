@@ -3,6 +3,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Pirite08/finlang/internal/ast"
 	"github.com/Pirite08/finlang/internal/config"
@@ -18,9 +19,19 @@ type parser struct {
 	depth, maxDepth   int
 	heights           map[ast.Node]int
 	inStep            bool
+	detachLexemes     bool
 }
 
 func Parse(file, source string, limits config.Limits) (*ast.Program, error) {
+	return parse(file, source, limits, false)
+}
+
+// ParseDetached builds a tree that can outlive its source without retaining it.
+func ParseDetached(file, source string, limits config.Limits) (*ast.Program, error) {
+	return parse(file, source, limits, true)
+}
+
+func parse(file, source string, limits config.Limits, detachLexemes bool) (*ast.Program, error) {
 	l, e := lexer.New(file, source, limits)
 	if e != nil {
 		return nil, e
@@ -28,7 +39,7 @@ func Parse(file, source string, limits config.Limits) (*ast.Program, error) {
 	if limits.MaxSyntaxDepth <= 0 {
 		limits.MaxSyntaxDepth = config.DefaultLimits().MaxSyntaxDepth
 	}
-	p := &parser{lexer: l, maxDepth: limits.MaxSyntaxDepth, heights: make(map[ast.Node]int)}
+	p := &parser{lexer: l, maxDepth: limits.MaxSyntaxDepth, heights: make(map[ast.Node]int), detachLexemes: detachLexemes}
 	p.advance()
 	program := &ast.Program{}
 	if p.startsRule() {
@@ -60,6 +71,10 @@ func (p *parser) advance() {
 	}
 	p.previous = p.current
 	p.current, p.err = p.lexer.Next()
+	if p.detachLexemes && p.current.Kind != token.String {
+		// The lexer already allocates separate storage for decoded strings.
+		p.current.Literal = strings.Clone(p.current.Literal)
+	}
 	if p.err == nil && p.current.Kind == token.Slash {
 		p.fail("E_DIVISION_POLICY_REQUIRED", `use div(value, divisor, scale, "MODE") to specify division scale and rounding policy`, p.current.Span)
 	}

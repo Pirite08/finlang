@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/diagnostic"
 )
 
@@ -18,26 +17,26 @@ const maxRequestTime = 5 * time.Second
 type httpProvider struct {
 	endpoint url.URL
 	client   http.Client
-	maxAge   time.Duration
+	policy   LivePolicy
 }
 
 // NewHTTP uses an endpoint serving the Quote JSON format. Requests include
 // base and target query parameters. Plain HTTP is limited to loopback adapters.
-func NewHTTP(endpoint string, client *http.Client, maxAge time.Duration) (Provider, error) {
-	provider, err := newHTTPProvider(endpoint, client, maxAge)
+func NewHTTP(endpoint string, client *http.Client, policy LivePolicy) (Provider, error) {
+	provider, err := newHTTPProvider(endpoint, client, policy)
 	if err != nil {
 		return nil, err
 	}
 	return provider, nil
 }
 
-func newHTTPProvider(endpoint string, client *http.Client, maxAge time.Duration) (*httpProvider, error) {
+func newHTTPProvider(endpoint string, client *http.Client, policy LivePolicy) (*httpProvider, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" ||
 		(u.Scheme != "https" && (u.Scheme != "http" || !isLoopback(u.Hostname()))) {
 		return nil, diagnostic.New("E_FX_CONFIG", "quote endpoint must be HTTPS or loopback HTTP without credentials, query or fragment")
 	}
-	if maxAge <= 0 {
+	if policy.MaxAge <= 0 {
 		return nil, diagnostic.New("E_FX_CONFIG", "maximum quote age must be positive")
 	}
 	if client == nil {
@@ -48,7 +47,7 @@ func newHTTPProvider(endpoint string, client *http.Client, maxAge time.Duration)
 	if bounded.Timeout <= 0 || bounded.Timeout > maxRequestTime {
 		bounded.Timeout = maxRequestTime
 	}
-	return &httpProvider{endpoint: *u, client: bounded, maxAge: maxAge}, nil
+	return &httpProvider{endpoint: *u, client: bounded, policy: policy}, nil
 }
 
 func isLoopback(host string) bool {
@@ -87,15 +86,8 @@ func (p *httpProvider) fetch(base, target string, query url.Values, decode func(
 	if err != nil {
 		return Quote{}, err
 	}
-	if _, err := quote.Validate(base, target, config.DefaultLimits()); err != nil {
+	if err := p.policy.ValidateQuote(quote, base, target, time.Now()); err != nil {
 		return Quote{}, err
-	}
-	now := time.Now()
-	if quote.AsOf.After(now) {
-		return Quote{}, diagnostic.New("E_FX_FUTURE", "quote timestamp is in the future")
-	}
-	if now.Sub(quote.AsOf) > p.maxAge {
-		return Quote{}, diagnostic.New("E_FX_STALE", "quote timestamp exceeds the configured maximum age")
 	}
 	return quote, nil
 }

@@ -33,6 +33,18 @@ func TestFixedQuoteKeepsExactRateAndDirection(t *testing.T) {
 	}
 }
 
+func TestFixedQuoteCanReplayRateOutsideLiveBounds(t *testing.T) {
+	body := strings.Replace(fixedQuote, `"1350.125000000000000001"`, `"1"`, 1)
+	provider, err := fx.LoadFixed(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote, err := provider.Latest("USD", "KRW")
+	if err != nil || quote.Rate != "1" {
+		t.Fatalf("expected saved quote rate 1, got %+v, %v", quote, err)
+	}
+}
+
 func TestFixedQuoteRejectsMalformedInputs(t *testing.T) {
 	cases := map[string]string{
 		"number":            strings.Replace(fixedQuote, `"1350.125000000000000001"`, `1350.125000000000000001`, 1),
@@ -76,7 +88,7 @@ func TestHTTPProviderRequestsLatestEachTime(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	provider, err := fx.NewHTTP(server.URL, server.Client(), time.Minute)
+	provider, err := fx.NewHTTP(server.URL, server.Client(), fx.LivePolicy{MaxAge: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +109,9 @@ func TestHTTPProviderRejectsUnusableQuotes(t *testing.T) {
 	}{
 		{"stale", quoteBody("1350.25", now.Add(-2*time.Minute)), "E_FX_STALE"},
 		{"future", quoteBody("1350.25", now.Add(time.Minute)), "E_FX_FUTURE"},
+		{"stale outlier", quoteBody("1", now.Add(-2*time.Minute)), "E_FX_STALE"},
+		{"outlier below range", quoteBody("1", now), "E_FX_OUTLIER"},
+		{"outlier above range", quoteBody("3000.000000000000000001", now), "E_FX_OUTLIER"},
 		{"pair", strings.Replace(quoteBody("1350.25", now), `"USD"`, `"EUR"`, 1), "E_FX_PAIR"},
 		{"response shape", `{"error":"private provider diagnostic"}`, "E_FX_QUOTE"},
 	}
@@ -106,7 +121,7 @@ func TestHTTPProviderRejectsUnusableQuotes(t *testing.T) {
 				fmt.Fprint(w, tc.body)
 			}))
 			defer server.Close()
-			provider, err := fx.NewHTTP(server.URL, server.Client(), time.Minute)
+			provider, err := fx.NewHTTP(server.URL, server.Client(), fx.LivePolicy{MaxAge: time.Minute})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +141,7 @@ func TestHTTPProviderRejectsRedirectAndUnsafeEndpoint(t *testing.T) {
 		http.Redirect(w, r, target.URL, http.StatusFound)
 	}))
 	defer server.Close()
-	provider, err := fx.NewHTTP(server.URL, server.Client(), time.Minute)
+	provider, err := fx.NewHTTP(server.URL, server.Client(), fx.LivePolicy{MaxAge: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +149,7 @@ func TestHTTPProviderRejectsRedirectAndUnsafeEndpoint(t *testing.T) {
 		t.Fatalf("redirect followed: %v", err)
 	}
 	for _, endpoint := range []string{"http://example.com/quote", "https://user:secret@example.com/quote", "https://example.com/quote?token=secret", "https://example.com/quote#secret"} {
-		if provider, err := fx.NewHTTP(endpoint, nil, time.Minute); provider != nil || diagnostic.CodeOf(err) != "E_FX_CONFIG" || strings.Contains(err.Error(), "secret") {
+		if provider, err := fx.NewHTTP(endpoint, nil, fx.LivePolicy{MaxAge: time.Minute}); provider != nil || diagnostic.CodeOf(err) != "E_FX_CONFIG" || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("unsafe endpoint accepted or error leaked: %v", err)
 		}
 	}

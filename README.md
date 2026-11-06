@@ -2,17 +2,17 @@
 
 **Exact decimals. Explicit settlement. Inspectable calculations.**
 
-`v0.4.0` · `Go 1.25+` · `표준 라이브러리만 사용`
+`v0.5.0` · `Go 1.27.3+` · `인터프리터는 표준 라이브러리 사용`
 
 금액을 언제, 몇 자리에서, 어떤 규칙으로 정산할지 코드에 직접 쓰는 작은 인터프리터입니다. 십진수는 이진 부동소수점으로 바꾸지 않고 계산하며, `Money`는 통화를 함께 보존합니다. JSON 계약으로 입력과 출력을 검사하고, 실제 계산 과정은 JSONL trace로 확인할 수 있습니다.
 
 학습·검증을 위한 프로젝트입니다. 현재 버전은 금융 시스템의 운영 적합성이나 COBOL 호환성을 보증하지 않습니다.
 
-[빠른 시작](#빠른-시작) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [계산 기록](#실제로-실행한-계산-기록하기) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
+[빠른 시작](#빠른-시작) · [기초 내장 함수](#기초-내장-함수) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [USD/KRW 수신기](#usdkrw-수신기) · [운영용 규칙 모드](#운영용-규칙-모드) · [감사 재현](#운영-로그와-감사-기록) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
 
 ## 빠른 시작
 
-Go 1.25 이상을 설치하고 저장소 루트에서 실행합니다. 실행 파일 이름은 `fin`입니다.
+Go 1.27.3 이상으로 저장소 루트에서 실행합니다. 실행 파일 이름은 `fin`입니다.
 
 처음 받는 경우:
 
@@ -40,7 +40,7 @@ go run ./cmd/fin -file examples/interest_v1.fin -contract contracts/interest_v1.
 go build -o build/fin.exe ./cmd/fin
 ```
 
-Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.4.0`을 출력합니다.
+Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.5.0`을 출력합니다.
 
 인수 없이 `go run ./cmd/fin`을 실행하면 한 줄 REPL이 열립니다. 선언한 이름은 다음 줄에도 남습니다. 여러 줄 함수는 UTF-8 파일에 저장한 뒤 `-file`로 실행합니다. 파일에서 값을 출력하려면 `print(...)`를 사용합니다.
 
@@ -80,6 +80,25 @@ USD 1.02
 숫자는 불필요한 소수부 끝자리 0을 제거합니다. `money("USD", 1.00)`의 숫자 표시는 `USD 1`이며, `format_money(..., 2)`로 표시 문자열 `USD 1.00`을 만듭니다. 끝자리 0은 표시 형식이며 값에 저장된 정산 이력이 아닙니다.
 
 `format_money(money("USD", 1.234), 2)`는 값을 몰래 반올림하지 않고 `E_INEXACT`를 냅니다. 먼저 `settle`로 정책을 적용해야 합니다. Decimal의 `format(x, digits)`도 같은 원칙을 따릅니다.
+
+### 기초 내장 함수
+
+| 함수 | 입력과 결과 | 사용 예시 |
+| --- | --- | --- |
+| `abs(x)`, `sign(x)` | Decimal 또는 Money를 받습니다. `abs`는 통화를 보존하고 `sign`은 `-1`, `0`, `1` 중 하나를 Decimal로 반환합니다. | `abs(money("USD", -2.35))` → `USD 2.35`<br>`sign(-0.01)` → `-1` |
+| `min(a, …)`, `max(a, …)`, `sum(a, …)` | Decimal 또는 같은 통화의 Money를 한 개 이상 받습니다. `sum`은 왼쪽부터 더하며 각 중간 합에 숫자 한도를 적용합니다. | `min(1.2, 3.4)` → `1.2`<br>`max(1.2, 3.4)` → `3.4`<br>`sum(0.1, 0.2)` → `0.3` |
+| `clamp(x, lower, upper)` | Decimal끼리 또는 같은 통화의 Money끼리 범위를 적용합니다. 하한이 상한보다 크면 `E_INVALID_RANGE`를 반환합니다. | `clamp(10, 1, 5)` → `5` |
+| `floor(x)`, `ceil(x)`, `trunc(x)` | Decimal을 정수값으로 내림·올림·절삭합니다. | `floor(-2.5)` → `-3`<br>`ceil(-2.5)` → `-2`<br>`trunc(-2.5)` → `-2` |
+| `decimal(text)`, `amount(m)`, `currency(m)` | `decimal`은 십진 문자열을 읽고, `amount`와 `currency`는 Money에서 각각 Decimal 금액과 통화 문자열을 꺼냅니다. | `decimal("12.30")` → `12.3`<br>`amount(money("USD", 12.30))` → `12.3`<br>`currency(money("USD", 12.30))` → `USD` |
+
+합계와 범위 적용은 정확한 값을 돌려줍니다. 아래 예제는 200만 원의 0.3% 수수료에 최소 100원과 최대 3,000원을 적용한 뒤 `settle`로 원 단위 금액을 확정합니다. `go run ./cmd/fin`으로 REPL을 열어 붙여 넣으면 `KRW 3000`을 출력합니다.
+
+```text
+let fee = clamp(money("KRW", 2000000) * decimal("0.003"), money("KRW", 100), money("KRW", 3000));
+print(settle(fee, 0, "HALF_EVEN"));
+```
+
+운영용 `-rule-only`에서는 `amount(amount)`처럼 함수 호출 위치의 이름과 변수 참조 위치의 이름을 구분합니다. 일반 모드는 변수의 이름을 먼저 찾으므로 이 함수를 호출할 때 `balance` 같은 다른 변수 이름을 사용합니다.
 
 ## 십진수와 반올림 정책
 
@@ -201,7 +220,39 @@ go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.js
 
 `-fx-fixed`, `-fx-provider`, `-fx-url` 중 하나를 선택합니다. 실시간 모드에서는 `rate`를 처음 호출할 때 해당 방향의 환율을 한 번 조회하고, 같은 실행 안에서 같은 방향을 다시 요청하면 그 값을 사용합니다. 다음 실행에서는 다시 조회합니다. 기준 시각이 기본 5분보다 오래됐거나 미래이면 오류를 반환합니다. 허용 경과 시간은 `-fx-max-age`로 조정합니다.
 
+실시간 환율의 기본 허용 범위는 1 USD당 500~3,000 KRW이며 양 끝을 포함합니다. 기관별 범위는 `-fx-min-rate`와 `-fx-max-rate`에 십진수로 지정합니다. KRW→USD 방향도 같은 USD 기준 범위를 적용합니다. 범위를 벗어난 응답은 `E_FX_OUTLIER`로 실행을 중단합니다. 고정 환율 파일을 사용한 재현에는 기존 입력 검사를 적용합니다.
+
 `-trace`를 지정하면 헤더의 `fx_quotes`에 적용 환율·방향·출처·기준 시각을 저장하고, `step_start`·`binding`·`step_end`에 실제 단계와 중간 값을 기록합니다. 한도에 도달해 이벤트가 잘려도 사용한 환율은 헤더에 남습니다. 환율 한 건을 재현하려면 헤더의 해당 객체를 JSON 파일로 저장해 `-fx-fixed`로 실행합니다.
+
+### USD/KRW 수신기
+
+`fxfeed`는 Twelve Data에서 USD/KRW 시세를 구독하고, 받아둔 최신 시세 한 건을 로컬 HTTP로 제공합니다. USD/KRW WebSocket에 접근할 수 있는 키를 첫 번째 터미널의 `FINLANG_TWELVE_DATA_API_KEY` 환경 변수에 설정합니다. [WebSocket 구독 문서](https://twelvedata.com/docs/websocket/websocket-getting-started)
+
+첫 번째 터미널에서 수신기를 실행합니다.
+
+```sh
+go run ./cmd/fxfeed -listen 127.0.0.1:8080
+```
+
+두 번째 터미널에서 이 주소를 `-fx-url`에 지정합니다.
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -fx-url http://127.0.0.1:8080/latest -trace build/usd_to_krw-stream.trace.jsonl
+```
+
+첫 시세를 기다리는 동안에는 `/latest`가 HTTP 503을 반환합니다. 응답하는 환율의 기준 시각과 출처는 실행 기록의 `fx_quotes`에 남습니다. 새 시세는 다음 환산 실행에서 반영됩니다. 같은 실행에서 `rate("USD", "KRW")`를 다시 호출하면 처음 읽은 값을 사용합니다.
+
+수신기가 연결을 다시 맺는 동안에도 보관한 시세가 허용 나이 안에 있으면 제공됩니다. 기본 허용 나이는 5분이며, 수신기의 `-max-age`와 finlang의 `-fx-max-age`를 각각 조정할 수 있습니다. 허용 나이는 조회 주기와 별개입니다. Twelve Data의 Forex v2 문서는 WebSocket 중간 환율이 분 단위로 갱신된다고 안내합니다. [Twelve Data Forex v2](https://support.twelvedata.com/en/articles/12520817-forex-api-v2)
+
+수신기는 중복 필드가 있거나 인식하는 필드의 대소문자가 올바르지 않은 WebSocket 메시지를 버립니다. 범위 밖 시세도 버리고, 이전 정상 시세는 유효 시간이 끝날 때까지 제공합니다. 범위를 조정할 때는 수신기의 `-min-rate`, `-max-rate`와 finlang의 `-fx-min-rate`, `-fx-max-rate`를 함께 설정합니다.
+
+로컬 WebSocket부터 `-fx-url`을 사용하는 finlang까지 연결한 테스트는 다음 명령으로 재현합니다.
+
+```sh
+go test ./internal/fxstream -run '^TestStreamUpdatesNextFinlangRun$' -count=1 -v
+```
+
+테스트는 첫 환산이 진행되는 중 로컬 WebSocket에서 환율을 `1350.25`에서 `1350.35`로 갱신합니다. USD 10을 환산한 첫 실행은 KRW 13502를, 다음 실행은 KRW 13504를 반환합니다. 두 실행의 trace에서 각 환율을 확인했습니다. 실제 Twelve Data 계정의 구독을 확인하려면 키가 필요합니다.
 
 ## 실제로 실행한 계산 기록하기
 
@@ -216,6 +267,32 @@ go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.js
 `inexact: true`는 해당 정산·나눗셈에서 0이 아닌 자리를 버렸다는 뜻입니다. 기본 기록 한도는 **10,000개 이벤트**입니다. 한도를 넘으면 추가 이벤트를 버리고 `trace_truncated: true`를 남기며, 계산 자체는 계속합니다. 따라서 잘린 trace는 전체 실행 기록으로 해석하면 안 됩니다.
 
 소스·입력·계약·실행 설정과 사용한 환율이 같으면 같은 기록을 생성하도록 설계했습니다. trace는 입력과 중간 금액을 포함하므로 공유할 때 그 내용도 함께 확인해야 합니다.
+
+### 운영 로그와 감사 기록
+
+`-ops-log`는 파일 실행이 끝나면 실행 ID, UTC 시각, 성공·실패 상태, 종료 코드와 오류 코드만 JSONL 한 줄로 추가합니다. 운영 로그 수집기는 이 파일을 읽습니다. 표준 출력과 표준 오류는 호출자에게 반환하는 거래 결과와 진단에 사용합니다.
+
+`-audit`는 JSON 계약 실행용입니다. 새 파일에 운영 로그와 연결되는 실행 ID, 규칙명과 소스 SHA-256, 계약 스키마 버전과 파일 SHA-256, 실행기가 적용한 환율 정책 버전·설정, 실제 사용한 환율·출처·시각, 입력과 결과를 기록합니다. 이 파일에는 거래 금액과 중간값이 있으므로 접근 권한이 제한된 디렉터리에 보관합니다. Windows에서는 해당 디렉터리의 ACL로 열람 권한을 제한합니다.
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -fx-fixed testdata/fx/usd_to_krw.json -ops-log build/operations.jsonl -audit build/usd_to_krw.audit.jsonl
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -json -replay-audit build/usd_to_krw.audit.jsonl -ops-log build/operations.jsonl
+```
+
+재현은 성공한 감사 기록의 입력과 환율을 사용합니다. 규칙·계약의 SHA-256과 버전이 맞아야 하며, 계산 결과가 기록과 같을 때만 결과를 반환합니다. SHA-256은 규칙과 계약 파일의 변경을 확인하는 데 쓰입니다. 감사 파일 자체의 무결성은 보관 시스템의 접근 제어와 변경 이력으로 관리해야 합니다.
+
+`-audit`로 다시 실행할 때는 새 파일 경로를 지정합니다. `-replay-audit`는 이미 만든 감사 파일을 읽습니다.
+
+### 운영용 규칙 모드
+
+JSON 계약 실행에 `-rule-only`를 추가하면 첫 `step` 전에 모든 단계와 `if` 분기를 검사합니다. 단계에서는 `let`, `require`, `if`와 허용된 식을 사용합니다. `round`, `div`, `format`, `money`, `settle`, `format_money`, `rate`, `convert`와 [기초 내장 함수](#기초-내장-함수)를 이름으로 직접 호출할 수 있습니다. `fn`, 함수 값을 통한 호출, `print`는 실행되지 않는 분기에 있어도 `E_RULE_POLICY`로 거부합니다.
+
+```sh
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -rule-only -fx-fixed testdata/fx/usd_to_krw.json -audit build/rule-only.audit.jsonl
+go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -json -replay-audit build/rule-only.audit.jsonl
+```
+
+`rate()`는 실행 전에 읽고 검증한 환율만 메모리에서 조회합니다. 한 방향은 `-fx-fixed`, 두 방향은 같은 환율 객체를 JSON 배열에 담아 `-fx-snapshot`으로 전달합니다. 환율 형식, 방향, 중복, 정밀도를 검사하며, 거래에 사용할 시세의 승인과 신선도 판단은 스냅샷을 준비할 때 처리합니다. `-fx-url`과 `-fx-provider`는 운영용 모드에서 거부합니다. 운영용 감사 기록을 재현할 때는 기록된 `rule-only-v1` 프로필이 자동으로 적용됩니다.
 
 ## 언어 범위와 실행 한도
 
@@ -250,14 +327,33 @@ UTF-8 source → lexer → parser → AST → evaluator → result
 | [`internal/decimal`](internal/decimal) | 십진 표현·정확한 연산·반올림·표시 |
 | [`internal/money`](internal/money) | 통화 검사와 명시적 정산 |
 | [`internal/fx`](internal/fx) | 고정·HTTP 환율과 Alpha Vantage 응답 검증 |
+| [`cmd/fxfeed`](cmd/fxfeed), [`internal/fxfeed`](internal/fxfeed), [`internal/fxstream`](internal/fxstream) | Twelve Data 구독과 로컬 USD/KRW 환율 제공 |
 | [`internal/lexer`](internal/lexer), [`internal/parser`](internal/parser), [`internal/ast`](internal/ast) | 토큰·문법·구문 트리 |
 | [`internal/eval`](internal/eval), [`internal/repl`](internal/repl) | 평가·내장 함수·대화형 실행 |
 | [`internal/contract`](internal/contract) | JSON 계약과 입력·출력 검증 |
 | [`internal/trace`](internal/trace) | 제한된 결정적 이벤트 기록과 JSONL 직렬화 |
+| [`internal/opslog`](internal/opslog) | 실행 ID와 상태 코드 중심의 운영 로그 |
 | [`internal/config`](internal/config), [`internal/diagnostic`](internal/diagnostic) | 실행 한도와 위치 기반 오류 |
 | [`examples`](examples), [`contracts`](contracts), [`testdata`](testdata) | 실행 예제·계약·검증 입력 |
 
 ## 검증 재현하기
+
+### v0.5.0 검증 결과
+
+Windows/amd64에서 Go 1.27.3과 GnuCOBOL 3.2.0으로 실행했습니다.
+
+| 검증 | 결과 |
+| --- | --- |
+| 전체 Go 테스트 | 최상위 167개, 하위 사례 포함 699개 통과. 실패·건너뜀 0개 |
+| 기초 내장 함수 | 정확한 Decimal 합계, 음수 내림·올림·절삭, 같은 통화의 Money 처리, 혼합 통화·빈 합계·뒤집힌 범위·숫자 한도 오류 확인 |
+| 운영용 규칙 모드 | 실행 전 함수 값 호출과 `print` 차단, 검증된 환율 스냅샷으로 계산 |
+| 감사 재현 | 환율 공급자를 종료한 뒤에도 저장된 환율로 동일 결과 재현. 내장 함수 수수료 예제는 상한 적용 후 `HALF_EVEN` 정산과 동일한 JSON 결과 확인 |
+| GnuCOBOL 회귀 비교 | 이자·수수료·합산 3,072건 실행 및 일치. 계약 입력 거절 40건은 별도 집계 |
+| 정적 검사·동시성 검사·빌드 | `go vet ./...`, CLI·평가기·Decimal의 `-race` 테스트, `fin`·`fxfeed` 빌드 통과 |
+
+```sh
+go test ./internal/eval ./internal/cli -run 'TestBasicBuiltin|TestRuleOnly|TestOperationalLogAndAuditReplay' -count=1 -v
+```
 
 ### v0.4.0 검증 결과
 
@@ -341,6 +437,7 @@ go test ./tests/compat -run TestCOBOL -count=1 -v
 | v0.2 | Money, 명시적 정산, JSON 계약 실행, 실제 실행 trace |
 | v0.3 | 교육용 COBOL 3개 규칙의 실제 차등 비교, 경계·오류 검증과 재현 자료 |
 | v0.4 | 순서가 명시된 `rule`·`step`, 실행마다 조회하는 환율과 실행 내 고정, 환율·단계 기록 |
+| v0.5 | USD/KRW WebSocket 수신기, 운영용 규칙 모드, 운영 로그와 감사 재현, 기초 내장 함수 12개 |
 | 남은 평가 | 실제 참가자 사용성 평가, 실제 업무 규칙 및 다른 COBOL 환경의 별도 검증 |
 
 작은 계산 규칙을 옮길 때 입력·중간 필드·정산 시점·예외가 보존되는지 확인하는 단계입니다. 운영 시스템의 교체는 후속 검증 범위입니다.

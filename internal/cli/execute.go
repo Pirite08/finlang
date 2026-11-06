@@ -2,16 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/contract"
 	"github.com/Pirite08/finlang/internal/diagnostic"
 	"github.com/Pirite08/finlang/internal/eval"
+	"github.com/Pirite08/finlang/internal/fx"
 	"github.com/Pirite08/finlang/internal/parser"
 	"github.com/Pirite08/finlang/internal/trace"
 )
@@ -34,16 +37,37 @@ func readLimitedFile(path string, limits config.Limits) ([]byte, error) {
 
 func exitCode(err error) int {
 	switch diagnostic.CodeOf(err) {
-	case "E_INPUT_IO", "E_OUTPUT_IO", "E_TRACE_IO":
+	case "E_INPUT_IO", "E_OUTPUT_IO", "E_TRACE_IO", "E_AUDIT_IO", "E_OPS_LOG_IO":
 		return 2
 	}
 	return 1
 }
 
-func (c command) runFile(limits config.Limits) int {
-	protectedPaths := []string{c.file, c.contract, c.input, c.fxFixed}
-	if err := validateTraceDestination(c.trace, protectedPaths); err != nil {
+func (c command) runFile(limits config.Limits) (code int) {
+	protectedPaths := []string{c.file, c.contract, c.input, c.fxFixed, c.fxSnapshot, c.replayAudit}
+	calculationLog := c.trace
+	logError := diagnostic.Code("E_TRACE_IO")
+	if c.audit != "" {
+		calculationLog, logError = c.audit, "E_AUDIT_IO"
+	}
+	if err := validateLogDestination(c.opsLog, append(protectedPaths, calculationLog), "E_OPS_LOG_IO"); err != nil {
 		return c.fail(err, 2)
+	}
+	protectedPaths = append(protectedPaths, c.opsLog)
+	if err := validateLogDestination(calculationLog, protectedPaths, logError); err != nil {
+		return c.fail(err, 2)
+	}
+	var runID string
+	if c.audit != "" || c.opsLog != "" {
+		runID = rand.Text()
+	}
+	if c.opsLog != "" {
+		operations, err := openOperations(c.opsLog)
+		if err != nil {
+			return c.fail(err, 2)
+		}
+		c.operationError = new(diagnostic.Code)
+		defer func() { c.finishOperation(operations, runID, code) }()
 	}
 	source, err := readLimitedFile(c.file, limits)
 	if err != nil {
@@ -52,6 +76,8 @@ func (c command) runFile(limits config.Limits) int {
 	var spec contract.Spec
 	var args []eval.Value
 	var rawInput json.RawMessage
+	var contractHash string
+	var replay trace.Header
 	if c.json {
 		data, err := readLimitedFile(c.contract, limits)
 		if err != nil {
@@ -62,22 +88,40 @@ func (c command) runFile(limits config.Limits) int {
 			return c.fail(err, 1)
 		}
 		c.rule = spec.Rule
-		data, err = readLimitedFile(c.input, limits)
-		if err != nil {
-			return c.fail(err, exitCode(err))
+		if c.audit != "" || c.replayAudit != "" {
+			contractHash = sha256Hex(data)
+		}
+		if c.replayAudit != "" {
+			replay, err = loadAuditReplay(c.replayAudit, limits)
+			if err != nil {
+				return c.fail(err, exitCode(err))
+			}
+			if replay.ProgramSHA256 != sha256Hex(source) || replay.ContractSHA256 != contractHash || replay.Rule != spec.Rule || replay.ContractVersion != spec.SchemaVersion {
+				return c.fail(diagnostic.New("E_AUDIT_REPLAY", "source or contract does not match the audit record"), 1)
+			}
+			c.ruleOnly = c.ruleOnly || replay.ExecutionProfile == ruleOnlyProfile
+			data = replay.Input
+		} else {
+			data, err = readLimitedFile(c.input, limits)
+			if err != nil {
+				return c.fail(err, exitCode(err))
+			}
 		}
 		args, err = contract.DecodeInput(bytes.NewReader(data), spec, limits)
 		if err != nil {
 			return c.fail(err, 1)
 		}
-		rawInput = append(json.RawMessage(nil), data...)
+		rawInput = data
 	}
 	program, err := parser.Parse(c.file, string(source), limits)
 	if err != nil {
 		return c.fail(err, 1)
 	}
+	if c.ruleOnly && program.Rule == nil {
+		return c.fail(diagnostic.New("E_RULE_POLICY", "rule-only execution requires a rule declaration"), 1)
+	}
 	var recorder *trace.Recorder
-	options := eval.Options{Limits: limits, Stdout: c.stdout, JSONMode: c.json}
+	options := eval.Options{Limits: limits, Stdout: c.stdout, JSONMode: c.json, RuleOnly: c.ruleOnly}
 	if program.Rule != nil {
 		if !c.json {
 			return c.fail(diagnostic.New("E_CLI_USAGE", "rule execution requires -json, -contract and -input"), 2)
@@ -85,14 +129,27 @@ func (c command) runFile(limits config.Limits) int {
 		if err := validateRuleContract(program.Rule, spec); err != nil {
 			return c.fail(err, 1)
 		}
-		options.FXProvider, err = c.quoteProvider(limits)
+		switch {
+		case c.replayAudit != "":
+			var snapshot *fx.Snapshot
+			snapshot, err = fx.NewSnapshot(replay.FXQuotes)
+			if c.ruleOnly {
+				options.FXSnapshot = snapshot
+			} else if err == nil {
+				options.FXProvider = snapshot
+			}
+		case c.ruleOnly:
+			options.FXSnapshot, err = c.loadSuppliedQuotes(limits)
+		default:
+			options.FXProvider, err = c.quoteProvider(limits)
+		}
 		if err != nil {
 			return c.fail(err, exitCode(err))
 		}
 	} else if c.hasFXSource() {
 		return c.fail(diagnostic.New("E_CLI_USAGE", "FX source options require a rule declaration"), 2)
 	}
-	if c.trace != "" {
+	if calculationLog != "" {
 		recorder = trace.NewRecorder(limits.MaxTraceEvents)
 		options.Trace = recorder
 	}
@@ -117,10 +174,30 @@ func (c command) runFile(limits config.Limits) int {
 	if runErr == nil && c.json {
 		runErr = contract.EncodeResult(&output, spec, result)
 	}
+	if c.replayAudit != "" && diagnostic.CodeOf(runErr) != "E_RULE_POLICY" {
+		if runErr != nil || !slices.Equal(replay.FXQuotes, evaluator.FXQuotes()) {
+			runErr = diagnostic.New("E_AUDIT_REPLAY", "execution did not use the recorded inputs and quotes successfully")
+		} else {
+			runErr = verifyAuditReplayResult(replay.Result, output.Bytes())
+		}
+	}
 	if recorder != nil {
-		hash := sha256.Sum256(source)
-		header := trace.Header{SchemaVersion: "1", ProgramSHA256: hex.EncodeToString(hash[:]), ContractVersion: spec.SchemaVersion, RunnerVersion: "fin " + Version, Input: rawInput, Limits: limits, FXQuotes: evaluator.FXQuotes()}
-		if err := writeTrace(c.trace, header, recorder, protectedPaths); err != nil {
+		header := trace.Header{SchemaVersion: "1", ProgramSHA256: sha256Hex(source), ContractVersion: spec.SchemaVersion, RunnerVersion: "fin " + Version, Input: rawInput, Limits: limits, FXQuotes: evaluator.FXQuotes()}
+		if c.audit != "" {
+			policy := c.fxPolicy.Snapshot(c.fxMode())
+			header.RunID = runID
+			header.Rule = spec.Rule
+			header.ContractSHA256 = contractHash
+			header.FXPolicy = &policy
+			if c.ruleOnly {
+				header.ExecutionProfile = ruleOnlyProfile
+			}
+			header.ErrorCode = diagnostic.CodeOf(runErr)
+			if runErr == nil {
+				header.Result = output.Bytes()
+			}
+		}
+		if err := writeTrace(calculationLog, header, recorder, protectedPaths, c.audit != ""); err != nil {
 			return c.fail(err, 2)
 		}
 	}
@@ -129,8 +206,13 @@ func (c command) runFile(limits config.Limits) int {
 	}
 	if c.json {
 		if _, err := output.WriteTo(c.stdout); err != nil {
-			return (command{stderr: c.stderr}).fail(diagnostic.New("E_OUTPUT_IO", err.Error()), 2)
+			return (command{stderr: c.stderr, operationError: c.operationError}).fail(diagnostic.New("E_OUTPUT_IO", err.Error()), 2)
 		}
 	}
 	return 0
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

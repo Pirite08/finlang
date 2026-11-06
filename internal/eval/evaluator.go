@@ -18,6 +18,8 @@ type Options struct {
 	JSONMode   bool
 	Trace      trace.Sink
 	FXProvider fx.Provider
+	RuleOnly   bool
+	FXSnapshot *fx.Snapshot
 }
 
 type Evaluator struct {
@@ -45,6 +47,9 @@ type outcome struct {
 }
 
 func (e *Evaluator) Run(program *ast.Program, env *Environment) (Value, error) {
+	if e.options.RuleOnly {
+		return nil, diagnostic.New("E_RULE_POLICY", "rule-only mode requires RunRule with a rule declaration")
+	}
 	if program.Rule != nil {
 		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT_REQUIRED", "use RunRule to supply a rule input"), program.Rule.Span)
 	}
@@ -187,7 +192,7 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		if value, ok := env.Lookup(node.Name); ok {
 			return value, nil
 		}
-		if e.isBuiltin(node.Name) {
+		if !e.options.RuleOnly && e.isBuiltin(node.Name) {
 			return builtinValue{name: node.Name}, nil
 		}
 		return nil, diagnostic.New("E_UNDEFINED_NAME", fmt.Sprintf("name %q is not defined", node.Name))
@@ -239,9 +244,21 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		}
 		return &FunctionValue{parameters: append([]string(nil), node.Parameters...), body: node.Body, environment: env}, nil
 	case *ast.Call:
-		function, err := e.expression(node.Function, env)
-		if err != nil {
-			return nil, err
+		var function Value
+		if e.options.RuleOnly {
+			callee, ok := node.Function.(*ast.Identifier)
+			if !ok || callee == nil {
+				return nil, rulePolicyError(node.Span, "only direct calls are allowed")
+			}
+			if err := e.tick(callee.Span); err != nil {
+				return nil, err
+			}
+			function = builtinValue{name: callee.Name}
+		} else {
+			function, err = e.expression(node.Function, env)
+			if err != nil {
+				return nil, err
+			}
 		}
 		arguments := make([]Value, 0, len(node.Arguments))
 		for _, argument := range node.Arguments {

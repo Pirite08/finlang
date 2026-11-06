@@ -110,6 +110,32 @@ func TestRuleHTTPRefreshesAcrossExecutions(t *testing.T) {
 	}
 }
 
+func TestRuleRejectsOutlierLiveFX(t *testing.T) {
+	for _, tc := range []struct {
+		name, rate string
+		flags      []string
+	}{
+		{name: "default bounds", rate: "1"},
+		{name: "operator bounds", rate: "1350.25", flags: []string{"-fx-min-rate", "1300", "-fx-max-rate", "1350.24"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, `{"base":"USD","target":"KRW","rate":%q,"source":"http-test","as_of":%q}`, tc.rate, time.Now().UTC().Format(time.RFC3339Nano))
+			}))
+			defer server.Close()
+			args := append(fxRuleArgs(), "-fx-url", server.URL)
+			var out, stderr bytes.Buffer
+			if code := Run(append(args, tc.flags...), strings.NewReader(""), &out, &stderr); code != 1 {
+				t.Fatalf("exit=%d, stdout=%s, stderr=%s", code, &out, &stderr)
+			}
+			record := decodeRecord(t, out.String())
+			if got, ok := record["error"].(map[string]any); !ok || got["code"] != "E_FX_OUTLIER" || record["result"] != nil {
+				t.Fatalf("want outlier failure without a settlement result, got %v", record)
+			}
+		})
+	}
+}
+
 func TestRuleFailedRequirementStopsBeforeQuote(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("failed amount check must stop before fetching a quote")

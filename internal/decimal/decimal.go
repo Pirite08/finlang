@@ -2,9 +2,10 @@
 package decimal
 
 import (
+	"math/big"
+
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/diagnostic"
-	"math/big"
 )
 
 // Decimal represents coefficient * 10^-scale. Its zero value is zero.
@@ -14,20 +15,25 @@ type Decimal struct {
 	scale       uint32
 }
 
-func (d Decimal) coeff() *big.Int {
+var zeroCoefficient big.Int
+
+// readCoefficient returns a borrowed operand. It must never be used as a receiver for mutation.
+func (d Decimal) readCoefficient() *big.Int {
 	if d.coefficient == nil {
-		return new(big.Int)
+		return &zeroCoefficient
 	}
-	return new(big.Int).Set(d.coefficient)
+	return d.coefficient
 }
+
+// Sign returns -1, 0, or 1 according to the sign of d.
+func (d Decimal) Sign() int { return d.readCoefficient().Sign() }
 
 func pow10(n uint32) *big.Int {
 	return new(big.Int).Exp(big.NewInt(10), new(big.Int).SetUint64(uint64(n)), nil)
 }
 
-// makeDecimal takes a copy before normalization, retaining exclusive ownership.
+// makeDecimal normalizes and takes ownership of a freshly computed coefficient.
 func makeDecimal(c *big.Int, scale uint32, limits config.Limits) (Decimal, error) {
-	c = new(big.Int).Set(c)
 	if c.Sign() == 0 {
 		return Decimal{}, nil
 	}
@@ -41,8 +47,26 @@ func makeDecimal(c *big.Int, scale uint32, limits config.Limits) (Decimal, error
 		c.Set(q)
 		scale--
 	}
-	if scale > limits.MaxScale || len(new(big.Int).Abs(c).String()) > limits.MaxCoefficientDigits {
-		return Decimal{}, diagnostic.New("E_NUMERIC_LIMIT", "normalized decimal exceeds numeric limits")
+	value := Decimal{c, scale}
+	if err := value.Validate(limits); err != nil {
+		return Decimal{}, err
 	}
-	return Decimal{c, scale}, nil
+	return value, nil
+}
+
+// Validate checks whether the normalized value fits the given numeric limits.
+func (d Decimal) Validate(limits config.Limits) error {
+	if d.coefficient == nil {
+		return nil
+	}
+	if d.scale <= limits.MaxScale {
+		digits := len(d.coefficient.String())
+		if d.coefficient.Sign() < 0 {
+			digits--
+		}
+		if digits <= limits.MaxCoefficientDigits {
+			return nil
+		}
+	}
+	return diagnostic.New("E_NUMERIC_LIMIT", "normalized decimal exceeds numeric limits")
 }
