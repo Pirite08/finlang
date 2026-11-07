@@ -12,6 +12,22 @@
 
 ## 빠른 시작
 
+### Windows 체험판
+
+1. [GitHub 릴리스에서 Windows x64 ZIP 받기](https://github.com/Pirite08/finlang/releases/download/v0.5.0/finlang-v0.5.0-windows-amd64.zip)를 눌러 다운로드합니다. 비공개 저장소에 접근할 수 있는 GitHub 계정으로 로그인해야 합니다.
+2. ZIP을 쓰기 가능한 폴더에 모두 풀고 `run-demo.cmd`를 두 번 클릭합니다. Go 설치나 API 키가 필요하지 않습니다.
+3. 원금 100만 원에 연이율 5%를 반년 적용한 결과 `KRW 25000`을 확인합니다. 이어서 감사 기록으로 재현한 결과가 같은 JSON으로 표시됩니다. 실행할 때마다 새 `interest-*.audit.jsonl`이 생깁니다.
+
+ZIP에는 `fin.exe`, 단리 규칙, 입력 JSON, 입력 계약, 예상 결과 `expected.json`, 사용 안내가 들어 있습니다. 파일을 수정해 다시 계산하거나 PowerShell에서 직접 실행하려면 [체험판 사용 안내](docs/windows-demo.md)를 참고하세요.
+
+체험판 ZIP을 다시 빌드하려면 Go가 설치된 Windows에서 저장소 루트의 PowerShell을 열고 다음 명령을 실행합니다. ZIP은 `build/`에 생성됩니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows-demo.ps1
+```
+
+### 소스에서 실행
+
 Go 1.27.3 이상으로 저장소 루트에서 실행합니다. 실행 파일 이름은 `fin`입니다.
 
 처음 받는 경우:
@@ -294,6 +310,17 @@ go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.js
 
 `rate()`는 실행 전에 읽고 검증한 환율만 메모리에서 조회합니다. 한 방향은 `-fx-fixed`, 두 방향은 같은 환율 객체를 JSON 배열에 담아 `-fx-snapshot`으로 전달합니다. 환율 형식, 방향, 중복, 정밀도를 검사하며, 거래에 사용할 시세의 승인과 신선도 판단은 스냅샷을 준비할 때 처리합니다. `-fx-url`과 `-fx-provider`는 운영용 모드에서 거부합니다. 운영용 감사 기록을 재현할 때는 기록된 `rule-only-v1` 프로필이 자동으로 적용됩니다.
 
+#### 여러 입력으로 단리 이자 계산하기
+
+`rule`은 `input principal in "KRW"`처럼 통화를 지정한 Money 입력과 `input annual_rate as decimal`처럼 Decimal 입력을 여러 개 선언할 수 있습니다. 각 입력은 선언 순서와 상관없이 같은 이름의 JSON 계약 항목에 연결됩니다. 계약에서 자료형, 통화, 범위, 소수 자릿수를 검사합니다.
+
+[운영용 단리 규칙](examples/interest_rule_v1.fin)은 기존 입력으로 원금 100만 원, 연이율 `0.05`, 기간 `0.5`년을 받아 `KRW 25000`을 반환합니다. 아래 두 실행은 같은 JSON 결과를 냅니다.
+
+```sh
+go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interest_rule_v1.json -input testdata/inputs/interest.json -json -rule-only -audit build/interest-rule.audit.jsonl
+go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interest_rule_v1.json -json -replay-audit build/interest-rule.audit.jsonl
+```
+
 ## 언어 범위와 실행 한도
 
 `let`, Decimal·Money·Bool·String, 비교, `if`·`else`, `fn`·`return`, 어휘적 스코프·클로저·재귀를 지원합니다. `if` 조건은 Bool만 허용합니다. 같은 환경에서 이름을 다시 선언할 수 없고 함수는 `return`으로 값을 반환해야 합니다. 세미콜론은 문장 사이에 쓰며 파일 끝과 닫는 중괄호 직전에는 생략할 수 있습니다.
@@ -344,7 +371,8 @@ Windows/amd64에서 Go 1.27.3과 GnuCOBOL 3.2.0으로 실행했습니다.
 
 | 검증 | 결과 |
 | --- | --- |
-| 전체 Go 테스트 | 최상위 167개, 하위 사례 포함 699개 통과. 실패·건너뜀 0개 |
+| 전체 Go 테스트 | 최상위 174개, 하위 사례 포함 716개 통과. 테스트 사례 실패·건너뜀 0개 |
+| Windows 체험판 | Go가 `PATH`에 없는 상태에서 압축을 풀어 실행. 단리 계산과 감사 재현의 JSON이 예상 결과 `KRW 25000`과 일치. 입력 파일을 제거한 뒤에도 감사 재현 성공 |
 | 기초 내장 함수 | 정확한 Decimal 합계, 음수 내림·올림·절삭, 같은 통화의 Money 처리, 혼합 통화·빈 합계·뒤집힌 범위·숫자 한도 오류 확인 |
 | 운영용 규칙 모드 | 실행 전 함수 값 호출과 `print` 차단, 검증된 환율 스냅샷으로 계산 |
 | 감사 재현 | 환율 공급자를 종료한 뒤에도 저장된 환율로 동일 결과 재현. 내장 함수 수수료 예제는 상한 적용 후 `HALF_EVEN` 정산과 동일한 JSON 결과 확인 |

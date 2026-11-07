@@ -2,12 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 
 	"github.com/Pirite08/finlang/internal/ast"
 	"github.com/Pirite08/finlang/internal/config"
 	"github.com/Pirite08/finlang/internal/contract"
 	"github.com/Pirite08/finlang/internal/diagnostic"
+	"github.com/Pirite08/finlang/internal/eval"
 	"github.com/Pirite08/finlang/internal/fx"
 )
 
@@ -91,16 +93,29 @@ func (c command) loadSuppliedQuotes(limits config.Limits) (*fx.Snapshot, error) 
 	return fx.LoadFixed(bytes.NewReader(data))
 }
 
-func validateRuleContract(rule *ast.Rule, spec contract.Spec) error {
+// ruleArguments matches the decoded contract values to the named declarations.
+func ruleArguments(rule *ast.Rule, spec contract.Spec, args []eval.Value) ([]eval.Value, error) {
 	if spec.Entry != rule.Name {
-		return diagnostic.WithSpan(diagnostic.New("E_CONTRACT_ENTRY", "contract entry must name the declared rule"), rule.Span)
+		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT_ENTRY", "contract entry must name the declared rule"), rule.Span)
 	}
-	if len(spec.Parameters) != 1 || spec.Parameters[0].Type != "money" ||
-		spec.Parameters[0].Name != rule.Input.Name || spec.Parameters[0].Currency != rule.Input.Currency {
-		return diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract input must match the rule input name and currency"), rule.Input.Span)
+	if len(spec.Parameters) != len(rule.Inputs) {
+		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract parameter count must match the rule input declarations"), rule.Span)
+	}
+	positions := make(map[string]int, len(spec.Parameters))
+	for i, parameter := range spec.Parameters {
+		positions[parameter.Name] = i
+	}
+	ordered := make([]eval.Value, 0, len(rule.Inputs))
+	for _, input := range rule.Inputs {
+		index, ok := positions[input.Name]
+		if !ok || spec.Parameters[index].Type != input.Type || spec.Parameters[index].Currency != input.Currency {
+			message := fmt.Sprintf("contract parameter must match the name, type and currency of rule input %q", input.Name)
+			return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", message), input.Span)
+		}
+		ordered = append(ordered, args[index])
 	}
 	if spec.Output.Type != "money" || spec.Output.Currency != rule.Output.Currency {
-		return diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract output currency must match the rule output declaration"), rule.Output.Span)
+		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract output currency must match the rule output declaration"), rule.Output.Span)
 	}
-	return nil
+	return ordered, nil
 }

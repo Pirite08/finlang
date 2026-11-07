@@ -40,8 +40,8 @@ func TestParseExchangeRule(t *testing.T) {
 	if rule == nil || len(program.Statements) != 0 || rule.Name != "usd_to_krw" {
 		t.Fatalf("expected one named rule, got %+v", program)
 	}
-	if rule.Input.Name != "amount" || rule.Input.Currency != "USD" || rule.Output.Name != "result" || rule.Output.Currency != "KRW" {
-		t.Fatalf("wrong input/output declarations: %+v, %+v", rule.Input, rule.Output)
+	if len(rule.Inputs) != 1 || rule.Inputs[0].Name != "amount" || rule.Inputs[0].Type != "money" || rule.Inputs[0].Currency != "USD" || rule.Output.Name != "result" || rule.Output.Currency != "KRW" {
+		t.Fatalf("wrong input/output declarations: %+v, %+v", rule.Inputs, rule.Output)
 	}
 	want := []string{"check_amount", "get_rate", "convert_amount", "settle_amount"}
 	if len(rule.Steps) != len(want) {
@@ -58,6 +58,31 @@ func TestParseExchangeRule(t *testing.T) {
 	}
 	if returned, ok := rule.Return.Value.(*ast.Identifier); !ok || returned.Name != "result" {
 		t.Fatalf("wrong return value: %+v", rule.Return.Value)
+	}
+}
+
+func TestParseRuleWithMultipleInputDeclarations(t *testing.T) {
+	rule := parse(t, `rule interest {
+        input principal in "KRW"
+        input annual_rate as decimal; input years as decimal
+        output result in "KRW"
+        step calculate {
+            let result = principal * annual_rate * years
+        }
+        return result
+    }`).Rule
+	want := []struct{ name, kind, currency string }{
+		{"principal", "money", "KRW"},
+		{"annual_rate", "decimal", ""},
+		{"years", "decimal", ""},
+	}
+	if len(rule.Inputs) != len(want) {
+		t.Fatalf("got %d inputs, want %d", len(rule.Inputs), len(want))
+	}
+	for i, input := range rule.Inputs {
+		if input.Name != want[i].name || input.Type != want[i].kind || input.Currency != want[i].currency {
+			t.Fatalf("input %d: got %+v, want %+v", i, input, want[i])
+		}
 	}
 }
 
@@ -85,6 +110,9 @@ func TestRuleSyntaxErrors(t *testing.T) {
 	}{
 		{"no input", strings.Replace(exchangeRule, `input amount in "USD"`, "", 1), `expected "input"`},
 		{"no output", strings.Replace(exchangeRule, `output result in "KRW"`, "", 1), `expected "output"`},
+		{"duplicate input", strings.Replace(exchangeRule, `output result`, `input amount as decimal; output result`, 1), "duplicate input"},
+		{"unknown input type", strings.Replace(exchangeRule, `input amount in "USD"`, `input amount as integer`, 1), `expected "decimal"`},
+		{"output shares second input name", strings.Replace(exchangeRule, `output result`, `input result as decimal; output result`, 1), "different names"},
 		{"same declaration names", strings.Replace(exchangeRule, `output result`, `output amount`, 1), "different names"},
 		{"no steps", `rule r { input amount in "USD" output result in "USD" return result }`, "at least one step"},
 		{"duplicate step", strings.Replace(exchangeRule, "step get_rate", "step check_amount", 1), "duplicate step"},
@@ -109,7 +137,7 @@ func TestRuleSyntaxErrors(t *testing.T) {
 func TestRuleKeywordsRemainLegacyIdentifiers(t *testing.T) {
 	for _, source := range []string{
 		`rule(1)`,
-		`let rule = fn(input, output, step, require, in) { return input }; rule(1, 2, 3, 4, 5)`,
+		`let rule = fn(input, output, step, require, in, as, decimal) { return input }; rule(1, 2, 3, 4, 5, 6, 7)`,
 	} {
 		if program := parse(t, source); program.Rule != nil {
 			t.Fatalf("legacy source parsed as rule: %s", source)

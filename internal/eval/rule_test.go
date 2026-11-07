@@ -191,3 +191,39 @@ func TestRuleRejectsConversionWithOppositeQuoteDirection(t *testing.T) {
 		t.Fatalf("wrong failed step trace: %+v", last)
 	}
 }
+
+func TestRuleValidatesAllInputsBeforeSteps(t *testing.T) {
+	rule := parseRuleForTest(t, `rule charges {
+        input principal in "KRW"
+        input rate_value as decimal
+        input fee in "KRW"
+        output result in "KRW"
+        step calculate { let result = principal * rate_value + fee }
+        return result
+    }`)
+	principal := ruleMoney(t, "KRW", "1000")
+	fee := ruleMoney(t, "KRW", "10")
+	for _, tc := range []struct {
+		name   string
+		inputs []Value
+		line   int
+	}{
+		{"missing input", []Value{principal, DecimalValue{}}, 1},
+		{"extra input", []Value{principal, DecimalValue{}, fee, fee}, 1},
+		{"wrong decimal type", []Value{principal, fee, fee}, 3},
+		{"wrong later currency", []Value{principal, DecimalValue{}, ruleMoney(t, "USD", "10")}, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := trace.NewRecorder(100)
+			e := New(Options{Trace: recorder, RuleOnly: true})
+			_, err := e.RunRule(rule, tc.inputs...)
+			var sourceError *diagnostic.Error
+			if !errors.As(err, &sourceError) || sourceError.Code != "E_RULE_INPUT" || sourceError.Span == nil || sourceError.Span.Line != tc.line {
+				t.Fatalf("wrong input diagnostic: %v", err)
+			}
+			if len(recorder.Events()) != 0 {
+				t.Fatalf("started steps before input validation: %+v", recorder.Events())
+			}
+		})
+	}
+}

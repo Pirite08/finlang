@@ -126,7 +126,8 @@ func (c command) runFile(limits config.Limits) (code int) {
 		if !c.json {
 			return c.fail(diagnostic.New("E_CLI_USAGE", "rule execution requires -json, -contract and -input"), 2)
 		}
-		if err := validateRuleContract(program.Rule, spec); err != nil {
+		args, err = ruleArguments(program.Rule, spec, args)
+		if err != nil {
 			return c.fail(err, 1)
 		}
 		switch {
@@ -157,7 +158,7 @@ func (c command) runFile(limits config.Limits) (code int) {
 	var result eval.Value
 	var runErr error
 	if program.Rule != nil {
-		result, runErr = evaluator.RunRule(program.Rule, args[0])
+		result, runErr = evaluator.RunRule(program.Rule, args...)
 	} else {
 		env := eval.NewEnvironment(nil)
 		result, runErr = evaluator.Run(program, env)

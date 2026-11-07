@@ -49,13 +49,27 @@ func (p *parser) rule() *ast.Rule {
 	rule := &ast.Rule{Name: p.current.Literal}
 	p.expect(token.Identifier)
 	p.expect(token.LBrace)
-	rule.Input = p.moneyDecl("input")
-	rule.Output = p.moneyDecl("output")
-	if rule.Input.Name == rule.Output.Name {
+	inputs := make(map[string]bool)
+	for p.err == nil && p.isWord("input") {
+		input := p.inputDecl()
+		if inputs[input.Name] {
+			p.fail("E_SYNTAX", fmt.Sprintf("duplicate input %q", input.Name), input.Span)
+		}
+		inputs[input.Name] = true
+		rule.Inputs = append(rule.Inputs, input)
+	}
+	if len(rule.Inputs) == 0 {
+		p.fail("E_SYNTAX", `expected "input"`, p.current.Span)
+	}
+	rule.Output = p.outputDecl()
+	if inputs[rule.Output.Name] {
 		p.fail("E_SYNTAX", "input and output must have different names", rule.Output.Span)
 	}
 	steps := make(map[string]bool)
-	children := []ast.Node{&rule.Input, &rule.Output}
+	children := []ast.Node{&rule.Output}
+	for i := range rule.Inputs {
+		children = append(children, &rule.Inputs[i])
+	}
 	for p.err == nil && p.isWord("step") {
 		step := p.ruleStep()
 		if steps[step.Name] {
@@ -82,17 +96,39 @@ func (p *parser) rule() *ast.Rule {
 	return rule
 }
 
-func (p *parser) moneyDecl(kind string) ast.MoneyDecl {
+func (p *parser) inputDecl() ast.InputDecl {
 	start := p.current.Span
-	p.expectWord(kind)
+	p.expectWord("input")
+	decl := ast.InputDecl{Name: p.current.Literal, Type: "money"}
+	p.expect(token.Identifier)
+	if p.isWord("as") {
+		p.advance()
+		p.expectWord("decimal")
+		decl.Type = "decimal"
+	} else {
+		decl.Currency = p.declaredCurrency()
+	}
+	decl.Span = p.span(start)
+	p.optionalSemicolon()
+	return decl
+}
+
+func (p *parser) outputDecl() ast.MoneyDecl {
+	start := p.current.Span
+	p.expectWord("output")
 	name := p.current.Literal
 	p.expect(token.Identifier)
-	p.expectWord("in")
-	currency := p.current.Literal
-	p.expect(token.String)
+	currency := p.declaredCurrency()
 	decl := ast.MoneyDecl{Span: p.span(start), Name: name, Currency: currency}
 	p.optionalSemicolon()
 	return decl
+}
+
+func (p *parser) declaredCurrency() string {
+	p.expectWord("in")
+	currency := p.current.Literal
+	p.expect(token.String)
+	return currency
 }
 
 func (p *parser) ruleStep() *ast.Step {

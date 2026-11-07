@@ -17,9 +17,9 @@ type ruleExecution struct {
 	rates map[currencyPair]fxQuoteValue
 }
 
-// RunRule starts an independent rule execution. All step bodies share one
-// environment so a step can read bindings declared by an earlier step.
-func (e *Evaluator) RunRule(rule *ast.Rule, input Value) (Value, error) {
+// RunRule starts an independent rule execution with inputs in declaration order.
+// All step bodies share one environment so later steps can read earlier bindings.
+func (e *Evaluator) RunRule(rule *ast.Rule, inputs ...Value) (Value, error) {
 	e.steps = 0
 	e.fxQuotes = nil
 	if e.options.RuleOnly {
@@ -30,18 +30,21 @@ func (e *Evaluator) RunRule(rule *ast.Rule, input Value) (Value, error) {
 			return nil, rulePolicyError(rule.Span, "rule-only mode accepts a prepared FX snapshot only")
 		}
 	}
-	for _, declaration := range []ast.MoneyDecl{rule.Input, rule.Output} {
-		if _, err := money.New(declaration.Currency, decimal.Decimal{}); err != nil {
-			return nil, diagnostic.WithSpan(err, declaration.Span)
-		}
+	if len(inputs) != len(rule.Inputs) {
+		message := fmt.Sprintf("rule %q expects %d inputs, got %d", rule.Name, len(rule.Inputs), len(inputs))
+		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), rule.Span)
 	}
-	amount, ok := input.(MoneyValue)
-	if !ok || amount.Value.Currency() != rule.Input.Currency {
-		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", fmt.Sprintf("input %q requires Money in %s", rule.Input.Name, rule.Input.Currency)), rule.Input.Span)
+	if _, err := money.New(rule.Output.Currency, decimal.Decimal{}); err != nil {
+		return nil, diagnostic.WithSpan(err, rule.Output.Span)
 	}
 	frame := NewEnvironment(nil)
-	if err := frame.Define(rule.Input.Name, input); err != nil {
-		return nil, diagnostic.WithSpan(err, rule.Input.Span)
+	for i, declaration := range rule.Inputs {
+		if err := validateRuleInput(declaration, inputs[i]); err != nil {
+			return nil, err
+		}
+		if err := frame.Define(declaration.Name, inputs[i]); err != nil {
+			return nil, diagnostic.WithSpan(err, declaration.Span)
+		}
 	}
 	e.rule = &ruleExecution{rates: make(map[currencyPair]fxQuoteValue)}
 	defer func() { e.rule = nil }()
@@ -64,6 +67,29 @@ func (e *Evaluator) RunRule(rule *ast.Rule, input Value) (Value, error) {
 	}
 	e.emit(trace.Event{Kind: "rule_return", Status: "ok", Span: rule.Return.Span}, nil, result)
 	return result, nil
+}
+
+func validateRuleInput(declaration ast.InputDecl, value Value) error {
+	var expected string
+	switch declaration.Type {
+	case "money":
+		if _, err := money.New(declaration.Currency, decimal.Decimal{}); err != nil {
+			return diagnostic.WithSpan(err, declaration.Span)
+		}
+		if amount, ok := value.(MoneyValue); ok && amount.Value.Currency() == declaration.Currency {
+			return nil
+		}
+		expected = "Money in " + declaration.Currency
+	case "decimal":
+		if _, ok := value.(DecimalValue); ok {
+			return nil
+		}
+		expected = "Decimal"
+	default:
+		return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", "unsupported rule input type"), declaration.Span)
+	}
+	message := fmt.Sprintf("input %q requires %s", declaration.Name, expected)
+	return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), declaration.Span)
 }
 
 func (e *Evaluator) runStep(step *ast.Step, frame *Environment) error {

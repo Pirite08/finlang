@@ -59,6 +59,26 @@ func TestRuleOnlyRejectsLiveProviderBeforeSteps(t *testing.T) {
 	}
 }
 
+func TestRuleOnlyChecksAllDeclaredInputNames(t *testing.T) {
+	rule := parseRuleForTest(t, `rule checked {
+        input amount in "USD"
+        input print as decimal
+        output result in "USD"
+        step calculate { let result = amount }
+        return result
+    }`)
+	recorder := trace.NewRecorder(100)
+	e := New(Options{RuleOnly: true, Trace: recorder})
+	_, err := e.RunRule(rule, ruleMoney(t, "USD", "10"), DecimalValue{})
+	var sourceError *diagnostic.Error
+	if !errors.As(err, &sourceError) || sourceError.Code != "E_RULE_POLICY" || sourceError.Span == nil || sourceError.Span.Line != 3 {
+		t.Fatalf("expected policy error at the second input, got %v", err)
+	}
+	if len(recorder.Events()) != 0 {
+		t.Fatalf("started steps before policy validation: %+v", recorder.Events())
+	}
+}
+
 func TestRuleOnlyUsesValidatedSnapshot(t *testing.T) {
 	quote := fixedQuote("USD", "KRW", "1350.25")
 	snapshot, err := fx.NewSnapshot([]fx.Quote{quote})

@@ -24,10 +24,13 @@ func validateRulePolicy(rule *ast.Rule, maxDepth int) error {
 	if rule == nil {
 		return diagnostic.New("E_RULE_POLICY", "rule-only mode requires a rule declaration")
 	}
-	for _, declaration := range []ast.MoneyDecl{rule.Input, rule.Output} {
+	for _, declaration := range rule.Inputs {
 		if reservedRuleName(declaration.Name) {
 			return rulePolicyError(declaration.Span, "builtin names are reserved in rule-only mode")
 		}
+	}
+	if reservedRuleName(rule.Output.Name) {
+		return rulePolicyError(rule.Output.Span, "builtin names are reserved in rule-only mode")
 	}
 	if len(rule.Steps) == 0 || rule.Return == nil {
 		return rulePolicyError(rule.Span, "a rule must have steps and a final return")

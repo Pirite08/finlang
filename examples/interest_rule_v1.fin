@@ -1,0 +1,16 @@
+rule interest_v1 {
+    input principal in "KRW"
+    input annual_rate as decimal
+    input years as decimal
+    output result in "KRW"
+
+    step calculate_interest {
+        let interest = principal * annual_rate * years
+    }
+
+    step settle_interest {
+        let result = settle(interest, 0, "HALF_UP")
+    }
+
+    return result
+}

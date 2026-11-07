@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "rule": "interest_v1",
+  "entry": "interest_v1",
+  "parameters": [
+    {"name": "principal", "type": "money", "currency": "KRW", "min": "0", "max": "999999999.99", "scale_max": 2},
+    {"name": "annual_rate", "type": "decimal", "min": "0", "max": "1", "scale_max": 6},
+    {"name": "years", "type": "decimal", "min": "0", "max": "10", "scale_max": 6}
+  ],
+  "output": {"type": "money", "currency": "KRW", "scale": 0, "min": "0", "max": "999999999"}
+}

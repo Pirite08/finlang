@@ -17,11 +17,16 @@ type Program struct {
 	Rule       *Rule
 }
 type Rule struct {
-	Span          diagnostic.Span
-	Name          string
-	Input, Output MoneyDecl
-	Steps         []*Step
-	Return        *Return
+	Span   diagnostic.Span
+	Name   string
+	Inputs []InputDecl
+	Output MoneyDecl
+	Steps  []*Step
+	Return *Return
+}
+type InputDecl struct {
+	Span                 diagnostic.Span
+	Name, Type, Currency string
 }
 type MoneyDecl struct {
 	Span           diagnostic.Span
@@ -98,6 +103,7 @@ type ExpressionStatement struct {
 }
 
 func (n *Rule) GetSpan() diagnostic.Span                { return n.Span }
+func (n *InputDecl) GetSpan() diagnostic.Span           { return n.Span }
 func (n *MoneyDecl) GetSpan() diagnostic.Span           { return n.Span }
 func (n *Step) GetSpan() diagnostic.Span                { return n.Span }
 func (n *Number) GetSpan() diagnostic.Span              { return n.Span }
