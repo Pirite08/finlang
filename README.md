@@ -1,24 +1,48 @@
-# finlang
+<h1 align="center">finlang</h1>
 
-**Exact decimals. Explicit settlement. Inspectable calculations.**
+<p align="center"><strong>십진수로 계산하고 정산 시점을 코드에 남기는 금융 DSL</strong></p>
 
-`v0.5.0` · `Go 1.27.3+` · `인터프리터는 표준 라이브러리 사용`
+<p align="center">
+  <a href="https://github.com/Pirite08/finlang/releases/tag/v0.5.0"><img src="https://img.shields.io/badge/release-v0.5.0-176654" alt="릴리스 v0.5.0"></a>
+  <img src="https://img.shields.io/badge/Go-1.27.3%2B-167086" alt="소스 실행에 Go 1.27.3 이상 필요">
+</p>
 
-금액을 언제, 몇 자리에서, 어떤 규칙으로 정산할지 코드에 직접 쓰는 작은 인터프리터입니다. 십진수는 이진 부동소수점으로 바꾸지 않고 계산하며, `Money`는 통화를 함께 보존합니다. JSON 계약으로 입력과 출력을 검사하고, 실제 계산 과정은 JSONL trace로 확인할 수 있습니다.
+finlang은 `Decimal`로 정확한 십진수 연산을 하고, `Money`로 금액과 통화를 함께 다룹니다. 이자·수수료·환산 규칙은 정산 위치와 반올림 정책을 명시하고, JSON 계약과 실행 기록으로 결과를 확인할 수 있습니다.
 
-학습·검증을 위한 프로젝트입니다. 현재 버전은 금융 시스템의 운영 적합성이나 COBOL 호환성을 보증하지 않습니다.
-
-[빠른 시작](#빠른-시작) · [기초 내장 함수](#기초-내장-함수) · [정산 시점](#정산-시점을-코드에-남기기) · [JSON 계약](#json-계약으로-규칙-실행하기) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [USD/KRW 수신기](#usdkrw-수신기) · [운영용 규칙 모드](#운영용-규칙-모드) · [감사 재현](#운영-로그와-감사-기록) · [검증](#검증-재현하기) · [COBOL 비교](#cobol과-같은-입력으로-비교하기)
+| 시작 방법 | 준비할 것 | 무엇을 해볼 수 있나요? |
+| --- | --- | --- |
+| **[웹 가이드](https://pirite08.github.io/finlang-guide/)** | 브라우저 | 기초 문법을 순서대로 읽고 예제와 단리 실습 보기 |
+| **[Windows x64 체험판](https://github.com/Pirite08/finlang/releases/tag/v0.5.0)** | 저장소 접근 권한 | Go 설치 없이 단리 계산과 감사 재현 실행 |
+| **[소스에서 실행](#소스에서-실행)** | Go 1.27.3 이상 | CLI로 규칙·JSON 계약·테스트 실행 |
 
 ## 빠른 시작
+
+### 첫 번째 계산
+
+원금 **100만 원**에 연이율 **5%**를 **반년** 적용합니다. 아래 코드를 `first-interest.fin`으로 저장하세요.
+
+```text
+// 원금에는 통화를 붙이고, 이율과 기간은 십진수로 적습니다.
+let principal = money("KRW", 1000000);
+let interest = principal * 0.05 * 0.5;
+
+// 계산을 마친 시점에 소수점 0자리로 반올림합니다.
+print(settle(interest, 0, "HALF_UP"));
+```
+
+체험판 폴더의 PowerShell에서는 `.\fin.exe -file first-interest.fin`, 소스 저장소 루트에서는 `go run ./cmd/fin -file first-interest.fin`으로 실행합니다.
+
+```text
+KRW 25000
+```
 
 ### Windows 체험판
 
 1. [GitHub 릴리스에서 Windows x64 ZIP 받기](https://github.com/Pirite08/finlang/releases/download/v0.5.0/finlang-v0.5.0-windows-amd64.zip)를 눌러 다운로드합니다. 비공개 저장소에 접근할 수 있는 GitHub 계정으로 로그인해야 합니다.
 2. ZIP을 쓰기 가능한 폴더에 모두 풀고 `run-demo.cmd`를 두 번 클릭합니다. Go 설치나 API 키가 필요하지 않습니다.
-3. 원금 100만 원에 연이율 5%를 반년 적용한 결과 `KRW 25000`을 확인합니다. 이어서 감사 기록으로 재현한 결과가 같은 JSON으로 표시됩니다. 실행할 때마다 새 `interest-*.audit.jsonl`이 생깁니다.
+3. 단리 계산과 감사 재현에서 같은 `KRW 25000` 결과를 확인합니다. 실행할 때마다 새 `interest-*.audit.jsonl`이 생깁니다.
 
-ZIP에는 `fin.exe`, 단리 규칙, 입력 JSON, 입력 계약, 예상 결과 `expected.json`, 사용 안내가 들어 있습니다. 파일을 수정해 다시 계산하거나 PowerShell에서 직접 실행하려면 [체험판 사용 안내](docs/windows-demo.md)를 참고하세요.
+VS Code에서도 압축을 푼 폴더를 열고 PowerShell 터미널에서 `.\run-demo.cmd --no-pause`를 실행할 수 있습니다. ZIP에 포함된 계약·입력 JSON을 수정하는 방법은 [체험판 사용 안내](docs/windows-demo.md)에서 확인하세요.
 
 체험판 ZIP을 다시 빌드하려면 Go가 설치된 Windows에서 저장소 루트의 PowerShell을 열고 다음 명령을 실행합니다. ZIP은 `build/`에 생성됩니다.
 
@@ -28,19 +52,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows-de
 
 ### 소스에서 실행
 
-Go 1.27.3 이상으로 저장소 루트에서 실행합니다. 실행 파일 이름은 `fin`입니다.
-
-처음 받는 경우:
+Go 1.27.3 이상이 설치된 환경에서 저장소를 복제한 뒤 루트 디렉터리에서 실행합니다.
 
 ```sh
 git clone https://github.com/Pirite08/finlang.git
 cd finlang
-```
-
-```sh
-go test ./...
 go run ./cmd/fin -version
 go run ./cmd/fin -file examples/decimal.fin
+```
+
+계약에 맞춰 단리 이자를 계산하고 실행 기록을 남깁니다.
+
+```sh
 go run ./cmd/fin -file examples/interest_v1.fin -contract contracts/interest_v1.json -input testdata/inputs/interest.json -json -trace build/interest.trace.jsonl
 ```
 
@@ -50,7 +73,7 @@ go run ./cmd/fin -file examples/interest_v1.fin -contract contracts/interest_v1.
 {"schema_version":"1","rule":"interest_v1","status":"ok","result":{"currency":"KRW","amount":"25000"}}
 ```
 
-빌드해 사용하려면:
+실행 파일을 빌드하려면 아래 명령을 사용합니다.
 
 ```sh
 go build -o build/fin.exe ./cmd/fin
@@ -59,6 +82,15 @@ go build -o build/fin.exe ./cmd/fin
 Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -o build/fin ./cmd/fin` 후 `./build/fin`으로 실행합니다. `-h`는 사용법, `-version`은 `fin v0.5.0`을 출력합니다.
 
 인수 없이 `go run ./cmd/fin`을 실행하면 한 줄 REPL이 열립니다. 선언한 이름은 다음 줄에도 남습니다. 여러 줄 함수는 UTF-8 파일에 저장한 뒤 `-file`로 실행합니다. 파일에서 값을 출력하려면 `print(...)`를 사용합니다.
+
+## 문서 길잡이
+
+| 관심 있는 내용 | 읽을 곳 |
+| --- | --- |
+| 문법과 숫자 계산 | [정산 시점](#정산-시점을-코드에-남기기) · [내장 함수](#기초-내장-함수) · [반올림 정책](#십진수와-반올림-정책) |
+| JSON 입력과 환산 | [JSON 계약](#json-계약으로-규칙-실행하기) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [USD/KRW 수신기](#usdkrw-수신기) |
+| 실행 기록과 재현 | [trace](#실제로-실행한-계산-기록하기) · [운영 로그와 감사 기록](#운영-로그와-감사-기록) · [운영용 규칙 모드](#운영용-규칙-모드) |
+| 소스와 검증 범위 | [코드 구조](#코드-구조) · [테스트 결과](#검증-재현하기) · [GnuCOBOL 비교](#cobol과-같은-입력으로-비교하기) |
 
 ## 정산 시점을 코드에 남기기
 
@@ -342,11 +374,16 @@ go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interes
 
 ## 코드 구조
 
-```text
-UTF-8 source → lexer → parser → AST → evaluator → result
-                                       ↑          ↓
-                               JSON contract   JSON / trace
+```mermaid
+flowchart LR
+    Source[".fin 소스"] --> Syntax["Lexer · Parser · AST"]
+    Syntax --> Eval["규칙 평가"]
+    Contract["JSON 계약과 입력"] --> Eval
+    Eval --> Result["계산 결과"]
+    Eval --> Record["JSONL 기록"]
 ```
+
+`fin` 인터프리터는 Go 표준 라이브러리로 구현합니다. 실시간 시세 수신기는 별도 실행 파일인 `fxfeed`에 있습니다.
 
 | 경로 | 역할 |
 | --- | --- |
