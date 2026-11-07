@@ -13,6 +13,7 @@ finlang은 `Decimal`로 정확한 십진수 연산을 하고, `Money`로 금액�
 | --- | --- | --- |
 | **[웹 가이드](https://pirite08.github.io/finlang-guide/)** | 브라우저 | 기초 문법을 순서대로 읽고 예제와 단리 실습 보기 |
 | **[Windows x64 체험판](https://github.com/Pirite08/finlang/releases/tag/v0.5.0)** | 저장소 접근 권한 | Go 설치 없이 단리 계산과 감사 재현 실행 |
+| **[VS Code 확장](#vs-code-확장)** | VS Code, 저장소 접근 권한 | `.fin` 문법 강조와 변수·함수 자동완성 |
 | **[소스에서 실행](#소스에서-실행)** | Go 1.27.3 이상 | CLI로 규칙·JSON 계약·테스트 실행 |
 
 ## 빠른 시작
@@ -49,6 +50,20 @@ VS Code에서도 압축을 푼 폴더를 열고 PowerShell 터미널에서 `.\ru
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows-demo.ps1
 ```
+
+### VS Code 확장
+
+1. 저장소에 접근할 수 있는 GitHub 계정으로 로그인하고 **[finlang Language Support 0.2.0 VSIX 받기](https://github.com/Pirite08/finlang/releases/download/vscode-v0.2.0/finlang-language-0.2.0.vsix)**를 누릅니다.
+2. VS Code의 **확장 → `…` → VSIX에서 설치**에서 받은 파일을 선택합니다.
+3. `.fin` 파일에서 `set`을 입력하고 **Ctrl+Space**를 누르면 `settle`을 선택할 수 있습니다. 직접 선언한 변수와 함수도 현재 위치에서 쓸 수 있으면 후보에 표시됩니다. 함수를 선택한 뒤 **Tab**으로 인수 자리 사이를 이동합니다.
+
+터미널에서는 VSIX를 받은 폴더에서 아래 명령으로도 설치할 수 있습니다.
+
+```powershell
+code --install-extension .\finlang-language-0.2.0.vsix
+```
+
+계산은 체험판의 `fin.exe`로 실행합니다. [확장 소스와 상세 안내](editors/vscode/README.md)
 
 ### 소스에서 실행
 

@@ -1,0 +1,41 @@
+{
+  "name": "finlang",
+  "scopeName": "source.finlang",
+  "patterns": [
+    { "name": "comment.line.double-slash.finlang", "match": "//.*$" },
+    {
+      "name": "string.quoted.double.finlang",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        { "name": "constant.character.escape.finlang", "match": "\\\\[\"\\\\nt]" },
+        { "name": "invalid.illegal.escape.finlang", "match": "\\\\." }
+      ]
+    },
+    { "name": "constant.numeric.finlang", "match": "\\b[0-9]+(?:\\.[0-9]+)?\\b" },
+    { "name": "constant.language.boolean.finlang", "match": "\\b(?:true|false)\\b" },
+    {
+      "name": "meta.declaration.finlang",
+      "match": "\\b(rule|step|input|output)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.finlang" },
+        "2": { "name": "entity.name.finlang" }
+      }
+    },
+    {
+      "match": "\\b(as)\\s+(decimal)\\b",
+      "captures": {
+        "1": { "name": "keyword.declaration.finlang" },
+        "2": { "name": "storage.type.finlang" }
+      }
+    },
+    { "name": "keyword.declaration.finlang", "match": "\\bin\\b(?=\\s*\")" },
+    { "name": "keyword.control.finlang", "match": "\\b(?:if|else|return|require)\\b" },
+    { "name": "storage.type.finlang", "match": "\\b(?:let|fn)\\b" },
+    {
+      "name": "support.function.finlang",
+      "match": "\\b(?:abs|amount|ceil|clamp|convert|currency|decimal|div|floor|format|format_money|max|min|money|print|rate|round|settle|sign|sum|trunc)\\b(?=\\s*\\()"
+    },
+    { "name": "keyword.operator.finlang", "match": "==|!=|<=|>=|[=!<>+*/-]" }
+  ]
+}

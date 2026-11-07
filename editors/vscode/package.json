@@ -1,0 +1,35 @@
+{
+  "name": "finlang-language",
+  "displayName": "finlang Language Support",
+  "description": "finlang .fin 문법 강조와 변수·함수 자동완성",
+  "version": "0.2.0",
+  "publisher": "pirite08",
+  "engines": { "vscode": "^1.74.0" },
+  "categories": ["Programming Languages"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pirite08/finlang.git",
+    "directory": "editors/vscode"
+  },
+  "main": "./extension.js",
+  "scripts": { "test": "node --test test/completion.test.js" },
+  "contributes": {
+    "configurationDefaults": {
+      "[finlang]": {
+        "editor.wordBasedSuggestions": "off",
+        "editor.suggest.showWords": false
+      }
+    },
+    "languages": [{
+      "id": "finlang",
+      "aliases": ["finlang", "Finlang"],
+      "extensions": [".fin"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "finlang",
+      "scopeName": "source.finlang",
+      "path": "./syntaxes/finlang.tmLanguage.json"
+    }]
+  }
+}
