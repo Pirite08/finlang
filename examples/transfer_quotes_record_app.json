@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "preview": "transfer_quotes_preview.html",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/transfer-quotes",
+      "rule": "transfer_quote_krw_v1.fin",
+      "contract": "../contracts/transfer_quote_krw_v1.json"
+    }
+  ]
+}

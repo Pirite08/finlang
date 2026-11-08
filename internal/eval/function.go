@@ -15,7 +15,7 @@ func (e *Evaluator) Call(function Value, args []Value, span diagnostic.Span) (va
 		}
 	}()
 	builtin, isBuiltin := function.(builtinValue)
-	if e.options.RuleOnly && (e.rule == nil || !isBuiltin || !ruleBuiltin(builtin.name)) {
+	if e.options.RuleOnly && (e.rule == nil || !isBuiltin || !ruleBuiltin(builtin.name, e.collectionRules())) {
 		return nil, diagnostic.New("E_RULE_POLICY", "only approved calculation functions can be called in a rule")
 	}
 	if isBuiltin {

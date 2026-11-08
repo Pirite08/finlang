@@ -1,0 +1,14 @@
+rule transfer_plan_krw_v1 {
+    input transfer as record
+    output plan as record
+
+    step calculate_fee {
+        let fee = settle(transfer.amount * 0.10, 0, "HALF_EVEN");
+    }
+
+    step plan_postings {
+        let plan = record { debit: transfer.amount + fee, credit: transfer.amount, fee: fee };
+    }
+
+    return plan
+}

@@ -17,13 +17,19 @@ type ruleExecution struct {
 	rates map[currencyPair]fxQuoteValue
 }
 
+// ValidateRulePolicy checks the restricted rule profile without executing a step.
+func (e *Evaluator) ValidateRulePolicy(rule *ast.Rule) error {
+	policy := rulePolicy{collections: e.collectionRules(), maxItems: e.options.Limits.MaxCollectionItems}
+	return policy.validate(rule, e.options.Limits.MaxSyntaxDepth)
+}
+
 // RunRule starts an independent rule execution with inputs in declaration order.
 // All step bodies share one environment so later steps can read earlier bindings.
 func (e *Evaluator) RunRule(rule *ast.Rule, inputs ...Value) (Value, error) {
 	e.steps = 0
 	e.fxQuotes = nil
 	if e.options.RuleOnly {
-		if err := validateRulePolicy(rule, e.options.Limits.MaxSyntaxDepth); err != nil {
+		if err := e.ValidateRulePolicy(rule); err != nil {
 			return nil, err
 		}
 		if e.options.FXProvider != nil {
@@ -34,12 +40,23 @@ func (e *Evaluator) RunRule(rule *ast.Rule, inputs ...Value) (Value, error) {
 		message := fmt.Sprintf("rule %q expects %d inputs, got %d", rule.Name, len(rule.Inputs), len(inputs))
 		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), rule.Span)
 	}
-	if _, err := money.New(rule.Output.Currency, decimal.Decimal{}); err != nil {
-		return nil, diagnostic.WithSpan(err, rule.Output.Span)
+	switch rule.Output.Type {
+	case "map":
+		if !e.collectionRules() {
+			return nil, rulePolicyError(rule.Output.Span, "Map output requires the collection rule profile")
+		}
+	case "record":
+		if !e.collectionRules() {
+			return nil, rulePolicyError(rule.Output.Span, "Record output requires the collection rule profile")
+		}
+	default:
+		if _, err := money.New(rule.Output.Currency, decimal.Decimal{}); err != nil {
+			return nil, diagnostic.WithSpan(err, rule.Output.Span)
+		}
 	}
 	frame := NewEnvironment(nil)
 	for i, declaration := range rule.Inputs {
-		if err := validateRuleInput(declaration, inputs[i]); err != nil {
+		if err := e.validateRuleInput(declaration, inputs[i]); err != nil {
 			return nil, err
 		}
 		if err := frame.Define(declaration.Name, inputs[i]); err != nil {
@@ -61,15 +78,37 @@ func (e *Evaluator) RunRule(rule *ast.Rule, inputs ...Value) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	result, ok := value.(MoneyValue)
-	if !ok || result.Value.Currency() != rule.Output.Currency {
-		return nil, diagnostic.WithSpan(diagnostic.New("E_RULE_OUTPUT", fmt.Sprintf("output %q requires Money in %s", rule.Output.Name, rule.Output.Currency)), rule.Return.Span)
+	if err := validateRuleOutput(rule, value); err != nil {
+		return nil, err
 	}
-	e.emit(trace.Event{Kind: "rule_return", Status: "ok", Span: rule.Return.Span}, nil, result)
-	return result, nil
+	e.emit(trace.Event{Kind: "rule_return", Status: "ok", Span: rule.Return.Span}, nil, value)
+	return value, nil
 }
 
-func validateRuleInput(declaration ast.InputDecl, value Value) error {
+func validateRuleOutput(rule *ast.Rule, value Value) error {
+	var expected string
+	switch rule.Output.Type {
+	case "map":
+		if _, ok := value.(mapValue); ok {
+			return nil
+		}
+		expected = "Map"
+	case "record":
+		if _, ok := value.(recordValue); ok {
+			return nil
+		}
+		expected = "Record"
+	default:
+		if result, ok := value.(MoneyValue); ok && result.Value.Currency() == rule.Output.Currency {
+			return nil
+		}
+		expected = "Money in " + rule.Output.Currency
+	}
+	message := fmt.Sprintf("output %q requires %s", rule.Output.Name, expected)
+	return diagnostic.WithSpan(diagnostic.New("E_RULE_OUTPUT", message), rule.Return.Span)
+}
+
+func (e *Evaluator) validateRuleInput(declaration ast.InputDecl, value Value) error {
 	var expected string
 	switch declaration.Type {
 	case "money":
@@ -85,11 +124,68 @@ func validateRuleInput(declaration ast.InputDecl, value Value) error {
 			return nil
 		}
 		expected = "Decimal"
+	case "list":
+		if !e.collectionRules() {
+			return rulePolicyError(declaration.Span, "List input requires the collection rule profile")
+		}
+		if rows, ok := value.(listValue); ok {
+			return e.validateRecordList(declaration, rows)
+		}
+		expected = "List of Records"
+	case "record":
+		if !e.collectionRules() {
+			return rulePolicyError(declaration.Span, "Record input requires the collection rule profile")
+		}
+		if record, ok := value.(recordValue); ok {
+			return e.validateRecordFields(declaration, record)
+		}
+		expected = "Record"
 	default:
 		return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", "unsupported rule input type"), declaration.Span)
 	}
 	message := fmt.Sprintf("input %q requires %s", declaration.Name, expected)
 	return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), declaration.Span)
+}
+
+func (e *Evaluator) validateRecordList(declaration ast.InputDecl, rows listValue) error {
+	span := declaration.Span
+	if err := e.checkCollectionSize(rows.length(), span); err != nil {
+		return err
+	}
+	if err := e.chargeCollectionWork(rows.length(), span); err != nil {
+		return err
+	}
+	for _, item := range rows.elements {
+		record, ok := item.(recordValue)
+		if !ok {
+			message := fmt.Sprintf("input %q must contain only Records", declaration.Name)
+			return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), span)
+		}
+		if err := e.validateRecordFields(declaration, record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Evaluator) validateRecordFields(declaration ast.InputDecl, record recordValue) error {
+	span := declaration.Span
+	count := int64(len(record.fields))
+	if err := e.checkCollectionSize(count, span); err != nil {
+		return err
+	}
+	if err := e.chargeCollectionWork(count, span); err != nil {
+		return err
+	}
+	for _, field := range record.fields {
+		switch field.value.(type) {
+		case MoneyValue, DecimalValue, StringValue:
+		default:
+			message := fmt.Sprintf("input %q Record fields must be Money, Decimal or String", declaration.Name)
+			return diagnostic.WithSpan(diagnostic.New("E_RULE_INPUT", message), span)
+		}
+	}
+	return nil
 }
 
 func (e *Evaluator) runStep(step *ast.Step, frame *Environment) error {
@@ -104,8 +200,13 @@ func (e *Evaluator) runStep(step *ast.Step, frame *Environment) error {
 		return err
 	}
 	if statements := step.Body.Statements; len(statements) > 0 {
-		if binding, ok := statements[len(statements)-1].(*ast.Let); ok {
+		switch binding := statements[len(statements)-1].(type) {
+		case *ast.Let:
 			result.value, _ = frame.Lookup(binding.Name)
+		case *ast.Var:
+			if e.collectionRules() {
+				result.value, _ = frame.Lookup(binding.Name)
+			}
 		}
 	}
 	e.emit(trace.Event{Kind: "step_end", Status: "ok", Span: step.Span}, nil, result.value)

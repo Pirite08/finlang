@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "rule": "transfer_fee_usd_v1",
+  "entry": "transfer_fee_usd_v1",
+  "parameters": [
+    {"name": "amount", "type": "money", "currency": "USD", "min": "0.01", "max": "92233720368547758.07", "scale_max": 2}
+  ],
+  "output": {"type": "money", "currency": "USD", "min": "0", "max": "92233720368547758.07", "scale": 2}
+}

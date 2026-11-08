@@ -60,6 +60,26 @@ func TestWriteJSONLRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestCollectionHeaderKeepsInputWithinSourceByteLimit(t *testing.T) {
+	limits := config.RuleCollectionLimits(config.DefaultLimits())
+	const prefix = `{"schema_version":"2","rule":"transactions","inputs":{"text":"<>&` + "\u2028\u2029"
+	const suffix = `"}}`
+	input := json.RawMessage(prefix + strings.Repeat("<", limits.MaxSourceBytes-len(prefix)-len(suffix)) + suffix)
+	header := trace.Header{ContractVersion: "2", Input: input, Limits: limits}
+	var output bytes.Buffer
+	if err := trace.WriteJSONL(&output, header, trace.NewRecorder(1)); err != nil {
+		t.Fatal(err)
+	}
+	line, _, _ := bytes.Cut(output.Bytes(), []byte{'\n'})
+	var read trace.Header
+	if err := json.Unmarshal(line, &read); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(read.Input, input) {
+		t.Fatalf("input grew from %d to %d bytes during audit serialization", len(input), len(read.Input))
+	}
+}
+
 type failAfterWriter struct {
 	remaining int
 	err       error

@@ -14,7 +14,7 @@ func (e *Evaluator) basicBuiltin(name string, args []Value, span diagnostic.Span
 	case "abs", "sign":
 		result, err = e.magnitudeBuiltin(name, args[0])
 	case "min", "max", "sum":
-		result, err = e.aggregateBuiltin(name, args)
+		result, err = e.aggregateBuiltin(name, args, span)
 	case "clamp":
 		result, err = clamp(args[0], args[1], args[2])
 	case "floor", "ceil", "trunc":
@@ -77,7 +77,18 @@ func (e *Evaluator) magnitudeBuiltin(name string, arg Value) (Value, error) {
 	return DecimalValue{Value: result}, err
 }
 
-func (e *Evaluator) aggregateBuiltin(name string, args []Value) (Value, error) {
+func (e *Evaluator) aggregateBuiltin(name string, args []Value, span diagnostic.Span) (Value, error) {
+	list, isList := args[0].(listValue)
+	listSum := name == "sum" && len(args) == 1 && isList
+	if listSum {
+		args = list.elements
+		if len(args) == 0 {
+			return nil, diagnostic.New("E_EMPTY_LIST", "sum requires a nonempty list with a numeric element type")
+		}
+		if err := e.tick(span); err != nil {
+			return nil, err
+		}
+	}
 	result := args[0]
 	switch result.(type) {
 	case DecimalValue, MoneyValue:
@@ -86,6 +97,11 @@ func (e *Evaluator) aggregateBuiltin(name string, args []Value) (Value, error) {
 	}
 	for _, arg := range args[1:] {
 		if name == "sum" {
+			if listSum {
+				if err := e.tick(span); err != nil {
+					return nil, err
+				}
+			}
 			if result.Kind() != arg.Kind() {
 				return nil, typeError(name, result, arg)
 			}

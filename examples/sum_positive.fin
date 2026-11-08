@@ -1,0 +1,12 @@
+// 양수만 골라 더합니다. total은 이 함수에서 갱신할 수 있는 지역 변수입니다.
+let sum_positive = fn(values) {
+    var total = 0;
+    for value in values {
+        if (value > 0) {
+            total = total + value;
+        }
+    }
+    return total;
+};
+
+print(sum_positive([1.2, -0.3, 0.4]));

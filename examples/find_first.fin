@@ -1,0 +1,14 @@
+// 인덱스 0부터 확인하고, 찾으면 바로 반환합니다.
+let find_first = fn(values, target) {
+    for index in range(0, len(values)) {
+        if (values[index] == target) {
+            return index;
+        }
+    }
+    // 찾지 못하면 -1을 반환합니다.
+    return -1;
+};
+
+let values = [3, 7, 5, 7];
+print(find_first(values, 7));
+print(find_first(values, 9));

@@ -1,0 +1,13 @@
+rule transfer_fee_usd_v1 {
+    input amount in "USD"
+    output fee in "USD"
+
+    step calculate {
+        let raw_fee = amount * 0.05;
+    }
+    step settle_fee {
+        let fee = settle(raw_fee, 2, "HALF_EVEN");
+    }
+
+    return fee
+}

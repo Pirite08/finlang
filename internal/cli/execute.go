@@ -88,6 +88,10 @@ func (c command) runFile(limits config.Limits) (code int) {
 			return c.fail(err, 1)
 		}
 		c.rule = spec.Rule
+		c.contractVersion = spec.SchemaVersion
+		if spec.SchemaVersion == "3" {
+			return c.fail(diagnostic.New("E_RULE_POLICY", "schema 3 requires fin serve"), 1)
+		}
 		if c.audit != "" || c.replayAudit != "" {
 			contractHash = sha256Hex(data)
 		}
@@ -99,13 +103,19 @@ func (c command) runFile(limits config.Limits) (code int) {
 			if replay.ProgramSHA256 != sha256Hex(source) || replay.ContractSHA256 != contractHash || replay.Rule != spec.Rule || replay.ContractVersion != spec.SchemaVersion {
 				return c.fail(diagnostic.New("E_AUDIT_REPLAY", "source or contract does not match the audit record"), 1)
 			}
-			c.ruleOnly = c.ruleOnly || replay.ExecutionProfile == ruleOnlyProfile
+			c.ruleOnly = c.ruleOnly || replay.ExecutionProfile == ruleOnlyProfile || replay.ExecutionProfile == ruleCollectionProfile
 			data = replay.Input
 		} else {
+			if spec.SchemaVersion == "2" && !c.ruleOnly {
+				return c.fail(diagnostic.New("E_RULE_POLICY", "schema 2 requires -rule-only execution"), 1)
+			}
 			data, err = readLimitedFile(c.input, limits)
 			if err != nil {
 				return c.fail(err, exitCode(err))
 			}
+		}
+		if spec.SchemaVersion == "2" {
+			limits = config.RuleCollectionLimits(limits)
 		}
 		args, err = contract.DecodeInput(bytes.NewReader(data), spec, limits)
 		if err != nil {
@@ -121,7 +131,10 @@ func (c command) runFile(limits config.Limits) (code int) {
 		return c.fail(diagnostic.New("E_RULE_POLICY", "rule-only execution requires a rule declaration"), 1)
 	}
 	var recorder *trace.Recorder
-	options := eval.Options{Limits: limits, Stdout: c.stdout, JSONMode: c.json, RuleOnly: c.ruleOnly}
+	options := eval.Options{
+		Limits: limits, Stdout: c.stdout, JSONMode: c.json,
+		RuleOnly: c.ruleOnly, CollectionRules: spec.SchemaVersion == "2",
+	}
 	if program.Rule != nil {
 		if !c.json {
 			return c.fail(diagnostic.New("E_CLI_USAGE", "rule execution requires -json, -contract and -input"), 2)
@@ -190,7 +203,10 @@ func (c command) runFile(limits config.Limits) (code int) {
 			header.Rule = spec.Rule
 			header.ContractSHA256 = contractHash
 			header.FXPolicy = &policy
-			if c.ruleOnly {
+			switch {
+			case options.CollectionRules:
+				header.ExecutionProfile = ruleCollectionProfile
+			case c.ruleOnly:
 				header.ExecutionProfile = ruleOnlyProfile
 			}
 			header.ErrorCode = diagnostic.CodeOf(runErr)

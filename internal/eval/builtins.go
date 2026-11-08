@@ -18,6 +18,7 @@ const (
 	builtinOutput
 	// New builtin names can overlap with bindings in existing rules.
 	builtinBasic
+	builtinCollection
 )
 
 type builtinSpec struct {
@@ -49,6 +50,21 @@ var builtins = map[string]builtinSpec{
 	"decimal":      {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
 	"amount":       {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
 	"currency":     {scope: builtinBasic, arity: 1, run: (*Evaluator).basicBuiltin},
+	"len":          {scope: builtinCollection, arity: 1, run: (*Evaluator).collectionBuiltin},
+	"range":        {scope: builtinCollection, arity: 2, run: (*Evaluator).collectionBuiltin},
+	"all":          {scope: builtinCollection, arity: 1, run: (*Evaluator).listBuiltin},
+	"any":          {scope: builtinCollection, arity: 1, run: (*Evaluator).listBuiltin},
+	"sorted":       {scope: builtinCollection, arity: 1, run: (*Evaluator).listBuiltin},
+	"lower_bound":  {scope: builtinCollection, arity: 2, run: (*Evaluator).listBuiltin},
+	"enumerate":    {scope: builtinCollection, arity: 1, run: (*Evaluator).pairBuiltin},
+	"zip_exact":    {scope: builtinCollection, arity: 2, run: (*Evaluator).pairBuiltin},
+	"matrix":       {scope: builtinCollection, arity: 1, run: (*Evaluator).matrixBuiltin},
+	"mat_add":      {scope: builtinCollection, arity: 2, run: (*Evaluator).matrixBuiltin},
+	"mat_mul":      {scope: builtinCollection, arity: 2, run: (*Evaluator).matrixBuiltin},
+	"transpose":    {scope: builtinCollection, arity: 1, run: (*Evaluator).matrixBuiltin},
+	"queue":        {scope: builtinCollection, arity: 0, run: (*Evaluator).queueBuiltin},
+	"enqueue":      {scope: builtinCollection, arity: 2, run: (*Evaluator).queueBuiltin},
+	"dequeue":      {scope: builtinCollection, arity: 1, run: (*Evaluator).queueBuiltin},
 }
 
 func (e *Evaluator) isBuiltin(name string) bool {

@@ -16,12 +16,32 @@ func TestRuleOnlyRejectsPolicyViolationsBeforeSteps(t *testing.T) {
 	for _, tc := range []struct{ name, statement string }{
 		{"print in dead branch", `if (false) { let ignored = print(amount) }`},
 		{"print in unselected else", `if (true) { require true } else { print(amount) }`},
+		{"print in unselected if expression", `let ignored = if (true) { amount } else { print(amount) }`},
+		{"print in short-circuited and", `require false && print(amount)`},
+		{"print in short-circuited or", `require true || print(amount)`},
 		{"function literal", `let helper = fn() { return amount; }`},
 		{"function value", `let helper = round`},
 		{"new builtin through an alias", `let helper = sum; let ignored = helper(1, 2)`},
 		{"indirect call", `let ignored = money("USD", 1)()`},
 		{"unknown call", `let ignored = helper(amount)`},
 		{"builtin shadowing", `let rate = 1`},
+		{"len in dead branch", `if (false) { let ignored = len(amount) }`},
+		{"range in dead branch", `if (false) { let ignored = range(0, 1) }`},
+		{"list literal", `let ignored = [amount]`},
+		{"indexing", `let ignored = amount[0]`},
+		{"mutable declaration", `var mutable = amount`},
+		{"assignment", `result = amount`},
+		{"loop in dead branch", `if (false) { for item in amount { require true } }`},
+		{"record in dead branch", `if (false) { let ignored = record { value: amount } }`},
+		{"map in dead branch", `if (false) { let ignored = map { "USD": amount } }`},
+		{"field in dead branch", `if (false) { let ignored = amount.value }`},
+		{"method in dead branch", `if (false) { let ignored = amount.currency() }`},
+		{"enumerate in dead branch", `if (false) { let ignored = enumerate(amount) }`},
+		{"zip_exact in dead branch", `if (false) { let ignored = zip_exact(amount, amount) }`},
+		{"matrix in dead branch", `if (false) { let ignored = matrix(amount) }`},
+		{"mat_mul in dead branch", `if (false) { let ignored = mat_mul(amount, amount) }`},
+		{"queue in dead branch", `if (false) { let ignored = queue() }`},
+		{"dequeue in dead branch", `if (false) { let ignored = dequeue(amount) }`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := parseRuleForTest(t, `rule checked {
@@ -43,6 +63,19 @@ func TestRuleOnlyRejectsPolicyViolationsBeforeSteps(t *testing.T) {
 				t.Fatalf("executed before policy rejection: output=%q events=%+v", output.String(), recorder.Events())
 			}
 		})
+	}
+}
+
+func TestRuleOnlyKeepsCollectionBuiltinNamesUsableAsBindings(t *testing.T) {
+	rule := parseRuleForTest(t, `rule checked {
+		input len in "USD"
+		output range in "USD"
+		step preserve { let range = len }
+		return range
+	}`)
+	result, err := New(Options{RuleOnly: true}).RunRule(rule, ruleMoney(t, "USD", "10"))
+	if err != nil || result.Inspect() != "USD 10" {
+		t.Fatalf("existing bindings were not preserved: result=%v err=%v", result, err)
 	}
 }
 

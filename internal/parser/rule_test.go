@@ -104,6 +104,18 @@ func TestRuleStepSeparatorsAndNestedFunctions(t *testing.T) {
 	}
 }
 
+func TestParseCollectionRuleDeclarations(t *testing.T) {
+	rule := parse(t, `rule sample {
+        input transactions as list; input rate as decimal
+        output totals as map
+        step initialize { var totals = map {} }
+        return totals
+    }`).Rule
+	if len(rule.Inputs) != 2 || rule.Inputs[0].Type != "list" || rule.Inputs[1].Type != "decimal" || rule.Output.Name != "totals" || rule.Output.Type != "map" || rule.Output.Currency != "" {
+		t.Fatalf("wrong collection declarations: %+v, %+v", rule.Inputs, rule.Output)
+	}
+}
+
 func TestRuleSyntaxErrors(t *testing.T) {
 	for _, test := range []struct {
 		name, source, message string

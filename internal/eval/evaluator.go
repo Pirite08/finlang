@@ -13,13 +13,14 @@ import (
 )
 
 type Options struct {
-	Limits     config.Limits
-	Stdout     io.Writer
-	JSONMode   bool
-	Trace      trace.Sink
-	FXProvider fx.Provider
-	RuleOnly   bool
-	FXSnapshot *fx.Snapshot
+	Limits          config.Limits
+	Stdout          io.Writer
+	JSONMode        bool
+	Trace           trace.Sink
+	FXProvider      fx.Provider
+	RuleOnly        bool
+	CollectionRules bool
+	FXSnapshot      *fx.Snapshot
 }
 
 type Evaluator struct {
@@ -35,11 +36,16 @@ func New(options Options) *Evaluator {
 	if options.Limits == (config.Limits{}) {
 		options.Limits = config.DefaultLimits()
 	}
+	if options.RuleOnly && options.CollectionRules {
+		options.Limits = config.RuleCollectionLimits(options.Limits)
+	}
 	if options.Stdout == nil {
 		options.Stdout = io.Discard
 	}
 	return &Evaluator{options: options}
 }
+
+func (e *Evaluator) collectionRules() bool { return e.options.RuleOnly && e.options.CollectionRules }
 
 type outcome struct {
 	value    Value
@@ -104,20 +110,25 @@ func (e *Evaluator) statement(node ast.Stmt, env *Environment) (result outcome, 
 	}()
 	switch node := node.(type) {
 	case *ast.Let:
-		if _, exists := env.values[node.Name]; exists {
-			return outcome{}, diagnostic.New("E_DUPLICATE_BINDING", fmt.Sprintf("name %q is already defined in this scope", node.Name))
+		return e.bind(node.Name, node.Value, env, false, node.GetSpan())
+	case *ast.Var:
+		return e.bind(node.Name, node.Value, env, true, node.GetSpan())
+	case *ast.Assign:
+		scope, err := env.assignmentScope(node.Name)
+		if err != nil {
+			return outcome{}, err
 		}
 		value, err := e.expression(node.Value, env)
 		if err != nil {
 			return outcome{}, err
 		}
-		if err = env.Define(node.Name, value); err != nil {
-			return outcome{}, err
-		}
-		if e.rule != nil && e.rule.step != "" {
-			e.emit(trace.Event{Kind: "binding", Span: node.GetSpan(), Binding: node.Name}, nil, value)
+		scope.values[node.Name] = value
+		if e.collectionRules() {
+			e.emit(trace.Event{Kind: "assignment", Span: node.GetSpan(), Binding: node.Name}, nil, value)
 		}
 		return outcome{value: UnitValue{}}, nil
+	case *ast.For:
+		return e.runFor(node, env)
 	case *ast.Require:
 		condition, err := e.expression(node.Condition, env)
 		if err != nil {
@@ -142,15 +153,10 @@ func (e *Evaluator) statement(node ast.Stmt, env *Environment) (result outcome, 
 		value, err := e.expression(node.Value, env)
 		return outcome{value: value, returned: true}, err
 	case *ast.If:
-		condition, err := e.expression(node.Condition, env)
+		truth, err := e.ifCondition(node.Condition, env)
 		if err != nil {
 			return outcome{}, err
 		}
-		truth, ok := condition.(BoolValue)
-		if !ok {
-			return outcome{}, typeError("if condition", condition)
-		}
-		e.emit(trace.Event{Kind: "branch", Span: node.Condition.GetSpan(), Branch: truth.Inspect()}, []Value{condition}, condition)
 		var branch *ast.Block
 		if truth {
 			branch = node.Consequence
@@ -166,6 +172,36 @@ func (e *Evaluator) statement(node ast.Stmt, env *Environment) (result outcome, 
 		return outcome{value: UnitValue{}}, nil
 	}
 	return outcome{}, diagnostic.New("E_INTERNAL", "unsupported statement node")
+}
+
+func (e *Evaluator) bind(name string, initializer ast.Expr, env *Environment, mutable bool, span diagnostic.Span) (outcome, error) {
+	if _, exists := env.values[name]; exists {
+		return outcome{}, diagnostic.New("E_DUPLICATE_BINDING", fmt.Sprintf("name %q is already defined in this scope", name))
+	}
+	value, err := e.expression(initializer, env)
+	if err != nil {
+		return outcome{}, err
+	}
+	if err := env.define(name, value, mutable); err != nil {
+		return outcome{}, err
+	}
+	if e.rule != nil && e.rule.step != "" {
+		e.emit(trace.Event{Kind: "binding", Span: span, Binding: name}, nil, value)
+	}
+	return outcome{value: UnitValue{}}, nil
+}
+
+func (e *Evaluator) ifCondition(node ast.Expr, env *Environment) (BoolValue, error) {
+	condition, err := e.expression(node, env)
+	if err != nil {
+		return false, err
+	}
+	truth, ok := condition.(BoolValue)
+	if !ok {
+		return false, typeError("if condition", condition)
+	}
+	e.emit(trace.Event{Kind: "branch", Span: node.GetSpan(), Branch: truth.Inspect()}, []Value{condition}, condition)
+	return truth, nil
 }
 
 func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, err error) {
@@ -188,6 +224,25 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		return StringValue(node.Value), nil
 	case *ast.Bool:
 		return BoolValue(node.Value), nil
+	case *ast.List:
+		return e.list(node, env)
+	case *ast.Record:
+		return e.record(node, env)
+	case *ast.Map:
+		return e.mapLiteral(node, env)
+	case *ast.Index:
+		return e.index(node, env)
+	case *ast.Member:
+		return e.member(node, env)
+	case *ast.IfExpr:
+		truth, err := e.ifCondition(node.Condition, env)
+		if err != nil {
+			return nil, err
+		}
+		if truth {
+			return e.expression(node.Consequence, env)
+		}
+		return e.expression(node.Alternative, env)
 	case *ast.Identifier:
 		if value, ok := env.Lookup(node.Name); ok {
 			return value, nil
@@ -225,9 +280,20 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		if err != nil {
 			return nil, err
 		}
+		if node.Operator == "&&" || node.Operator == "||" {
+			return e.logical(node, left, env)
+		}
 		right, err := e.expression(node.Right, env)
 		if err != nil {
 			return nil, err
+		}
+		if !e.collectionRules() && left.Kind() == KindMatrix && right.Kind() == KindMatrix {
+			switch node.Operator {
+			case "+":
+				return e.matrixBuiltin("mat_add", []Value{left, right}, node.GetSpan())
+			case "*":
+				return e.matrixBuiltin("mat_mul", []Value{left, right}, node.GetSpan())
+			}
 		}
 		result, err := e.infix(node.Operator, left, right)
 		if err == nil {
@@ -244,6 +310,9 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		}
 		return &FunctionValue{parameters: append([]string(nil), node.Parameters...), body: node.Body, environment: env}, nil
 	case *ast.Call:
+		if member, ok := node.Function.(*ast.Member); ok && (!e.options.RuleOnly || e.collectionRules()) {
+			return e.callMethod(member, node.Arguments, env, node.GetSpan())
+		}
 		var function Value
 		if e.options.RuleOnly {
 			callee, ok := node.Function.(*ast.Identifier)
@@ -271,6 +340,28 @@ func (e *Evaluator) expression(node ast.Expr, env *Environment) (value Value, er
 		return e.Call(function, arguments, node.GetSpan())
 	}
 	return nil, diagnostic.New("E_INTERNAL", "unsupported expression node")
+}
+
+func (e *Evaluator) logical(node *ast.Infix, left Value, env *Environment) (Value, error) {
+	truth, ok := left.(BoolValue)
+	if !ok {
+		return nil, diagnostic.WithSpan(typeError(node.Operator, left), node.Left.GetSpan())
+	}
+	event := trace.Event{Kind: node.Operator, Span: node.GetSpan()}
+	if (node.Operator == "&&" && !truth) || (node.Operator == "||" && truth) {
+		e.emit(event, []Value{left}, truth)
+		return truth, nil
+	}
+	right, err := e.expression(node.Right, env)
+	if err != nil {
+		return nil, err
+	}
+	result, ok := right.(BoolValue)
+	if !ok {
+		return nil, diagnostic.WithSpan(typeError(node.Operator, left, right), node.Right.GetSpan())
+	}
+	e.emit(event, []Value{left, right}, result)
+	return result, nil
 }
 
 func typeError(operation string, values ...Value) error {

@@ -2,6 +2,8 @@ package trace
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"io"
 
 	"github.com/Pirite08/finlang/internal/config"
@@ -33,10 +35,20 @@ func WriteJSONL(w io.Writer, header Header, recorder *Recorder) error {
 	if header.SchemaVersion == "" {
 		header.SchemaVersion = "1"
 	}
-	if err := writeRecord(w, struct {
+	record := struct {
 		Record string `json:"record"`
 		Header
-	}{Record: "header", Header: header}); err != nil {
+	}{Record: "header", Header: header}
+	if header.ContractVersion == "2" {
+		// The embedded input must still fit the source byte limit on replay.
+		data, err := jsonv2.Marshal(record, json.DefaultOptionsV1(), jsontext.EscapeForHTML(false), jsontext.EscapeForJS(false))
+		if err != nil {
+			return err
+		}
+		if err := writeLine(w, data); err != nil {
+			return err
+		}
+	} else if err := writeRecord(w, record); err != nil {
 		return err
 	}
 	for _, event := range recorder.events {
@@ -59,6 +71,10 @@ func writeRecord(w io.Writer, record any) error {
 	if err != nil {
 		return err
 	}
+	return writeLine(w, data)
+}
+
+func writeLine(w io.Writer, data []byte) error {
 	data = append(data, '\n')
 	n, err := w.Write(data)
 	if err != nil {

@@ -14,6 +14,7 @@ finlang은 `Decimal`로 정확한 십진수 연산을 하고, `Money`로 금액�
 | **[웹 가이드](https://pirite08.github.io/finlang-guide/)** | 브라우저 | 기초 문법을 순서대로 읽고 예제와 단리 실습 보기 |
 | **[Windows x64 체험판](https://github.com/Pirite08/finlang/releases/tag/v0.5.0)** | 저장소 접근 권한 | Go 설치 없이 단리 계산과 감사 재현 실행 |
 | **[VS Code 확장](#vs-code-확장)** | VS Code, 저장소 접근 권한 | `.fin` 문법 강조와 변수·함수 자동완성 |
+| **[로컬 송금 콘솔](#송금-콘솔-실행)** | Go 1.27.3 이상, 브라우저 | 송금 견적, 테스트 원장 반영, 규칙 버전별 감사 재현 |
 | **[소스에서 실행](#소스에서-실행)** | Go 1.27.3 이상 | CLI로 규칙·JSON 계약·테스트 실행 |
 
 ## 빠른 시작
@@ -105,6 +106,7 @@ Windows PowerShell에서는 `.\build\fin.exe`, macOS·Linux에서는 `go build -
 | 문법과 숫자 계산 | [정산 시점](#정산-시점을-코드에-남기기) · [내장 함수](#기초-내장-함수) · [반올림 정책](#십진수와-반올림-정책) |
 | JSON 입력과 환산 | [JSON 계약](#json-계약으로-규칙-실행하기) · [절차형 환산](#절차형-환산-규칙) · [고정 환율](#고정-환율로-실행하기) · [실시간 환율](#실시간-환율로-실행하기) · [USD/KRW 수신기](#usdkrw-수신기) |
 | 실행 기록과 재현 | [trace](#실제로-실행한-계산-기록하기) · [운영 로그와 감사 기록](#운영-로그와-감사-기록) · [운영용 규칙 모드](#운영용-규칙-모드) |
+| 송금 백엔드 | [콘솔 실행](#송금-콘솔-실행) · [5%에서 10%로 전환](#송금-규칙을-버전별로-배포하고-재현하기) · [검증 결과](#송금-백엔드-검증) |
 | 소스와 검증 범위 | [코드 구조](#코드-구조) · [테스트 결과](#검증-재현하기) · [GnuCOBOL 비교](#cobol과-같은-입력으로-비교하기) |
 
 ## 정산 시점을 코드에 남기기
@@ -348,14 +350,14 @@ go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.js
 
 ### 운영용 규칙 모드
 
-JSON 계약 실행에 `-rule-only`를 추가하면 첫 `step` 전에 모든 단계와 `if` 분기를 검사합니다. 단계에서는 `let`, `require`, `if`와 허용된 식을 사용합니다. `round`, `div`, `format`, `money`, `settle`, `format_money`, `rate`, `convert`와 [기초 내장 함수](#기초-내장-함수)를 이름으로 직접 호출할 수 있습니다. `fn`, 함수 값을 통한 호출, `print`는 실행되지 않는 분기에 있어도 `E_RULE_POLICY`로 거부합니다.
+JSON 계약 실행에 `-rule-only`를 추가하면 첫 `step` 전에 모든 단계와 분기를 검사합니다. 스키마 1의 단계에서는 `let`, `require`, `if`와 허용된 식을 사용합니다. `round`, `div`, `format`, `money`, `settle`, `format_money`, `rate`, `convert`와 [기초 내장 함수](#기초-내장-함수)를 이름으로 직접 호출할 수 있습니다. `fn`, 함수 값을 통한 호출, `print`는 실행되지 않는 분기에 있어도 `E_RULE_POLICY`로 거부합니다.
 
 ```sh
 go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -input testdata/inputs/usd_to_krw.json -json -rule-only -fx-fixed testdata/fx/usd_to_krw.json -audit build/rule-only.audit.jsonl
 go run ./cmd/fin -file examples/usd_to_krw.fin -contract contracts/usd_to_krw.json -json -replay-audit build/rule-only.audit.jsonl
 ```
 
-`rate()`는 실행 전에 읽고 검증한 환율만 메모리에서 조회합니다. 한 방향은 `-fx-fixed`, 두 방향은 같은 환율 객체를 JSON 배열에 담아 `-fx-snapshot`으로 전달합니다. 환율 형식, 방향, 중복, 정밀도를 검사하며, 거래에 사용할 시세의 승인과 신선도 판단은 스냅샷을 준비할 때 처리합니다. `-fx-url`과 `-fx-provider`는 운영용 모드에서 거부합니다. 운영용 감사 기록을 재현할 때는 기록된 `rule-only-v1` 프로필이 자동으로 적용됩니다.
+`rate()`는 실행 전에 읽고 검증한 환율만 메모리에서 조회합니다. 한 방향은 `-fx-fixed`, 두 방향은 같은 환율 객체를 JSON 배열에 담아 `-fx-snapshot`으로 전달합니다. 환율 형식, 방향, 중복, 정밀도를 검사하며, 거래에 사용할 시세의 승인과 신선도 판단은 스냅샷을 준비할 때 처리합니다. `-fx-url`과 `-fx-provider`는 운영용 모드에서 거부합니다. 감사 재현에는 기록에 남은 실행 프로필이 자동으로 적용됩니다.
 
 #### 여러 입력으로 단리 이자 계산하기
 
@@ -368,9 +370,277 @@ go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interes
 go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interest_rule_v1.json -json -replay-audit build/interest-rule.audit.jsonl
 ```
 
+#### 거래 목록을 통화별로 합산하기
+
+[운영용 거래 합산 규칙](examples/group_transactions_rule_v2.fin)은 `input transactions as list`로 거래를 받고 `output totals as map`으로 통화별 Money를 반환합니다. 첫 단계에서 빈 맵을 준비하고, 다음 단계에서 거래를 입력 순서대로 읽어 해당 통화의 합계에 더합니다.
+
+[스키마 2 계약](contracts/group_transactions_v2.json)은 필드가 명시된 레코드 목록을 받고, 통화 코드를 키로 쓰는 Money 맵을 반환합니다. 거래별 필드의 누락·중복·미등록 이름, 허용 통화, 금액의 범위와 소수 자릿수를 실행 전에 검사합니다. 결과도 계약에 맞춰 검사하며 금액은 문자열로 출력합니다. 예제 계약은 거래 128개, 합계 통화 2개, 거래 ID 32바이트까지 허용합니다.
+
+```sh
+go run ./cmd/fin -file examples/group_transactions_rule_v2.fin -contract contracts/group_transactions_v2.json -input testdata/inputs/group_transactions_v2.json -json -rule-only -audit build/group-transactions.audit.jsonl
+go run ./cmd/fin -file examples/group_transactions_rule_v2.fin -contract contracts/group_transactions_v2.json -json -replay-audit build/group-transactions.audit.jsonl
+```
+
+```json
+{"schema_version":"2","rule":"group_transactions_v2","status":"ok","result":{"KRW":{"currency":"KRW","amount":"3500.00"},"USD":{"currency":"USD","amount":"20.00"}}}
+```
+
+`rule-only-v2`에서 추가로 허용하는 문법은 List·Record·Map, 인덱스와 필드 읽기, `for`, `var`, 변수 대입입니다. 직접 호출할 수 있는 컬렉션 함수는 `len`, `range`, `sum`, `all`, `any`, `sorted`, `lower_bound`, `enumerate`, `zip_exact`입니다. 메서드는 Map의 `has`, `get`, `with`, `keys`, `len`을 허용합니다. 행렬·큐와 간접 함수 호출은 운영용 검사에서 거부합니다.
+
+실행기는 컬렉션 하나에 최대 1,024개 항목을 허용하며, 실행 중 초과하면 `E_COLLECTION_LIMIT`를 반환합니다. 반복과 내장 함수의 작업도 100,000단계 실행 한도에 포함하며, 초과하면 `E_EXECUTION_LIMIT`를 반환합니다. 감사 헤더에는 원본 거래 목록, 통화별 결과, 실행 프로필과 실제 한도가 기록됩니다. 재현은 해당 프로필과 한도를 확인한 뒤 기록된 입력으로 다시 계산합니다.
+
+## 송금 백엔드
+
+| 단계 | 구현 |
+| --- | --- |
+| 1 | `fin serve`가 매니페스트의 HTTP 경로를 finlang 규칙과 JSON 계약에 연결 |
+| 2 | `Record`로 송금 정보를 받아 수수료와 총 차감액을 계산 |
+| 3 | finlang의 송금 계획을 검증하고 잔액·원장·감사 자료를 SQLite에 한 번에 저장 |
+| 4 | 규칙·계약 원본을 버전별로 보관하고, 거래에 기록된 버전으로 읽기 전용 재현 |
+
+### `fin serve`로 수수료 조회 API 열기
+
+[예제 설정](examples/transfer_quotes_app.json)의 `routes` 항목은 `POST /transfer-quotes`를 기존 KRW 수수료 [규칙](internal/transferfee/rules/krw.fin)과 [JSON 계약](internal/transferfee/rules/krw.json)에 연결합니다. 규칙과 계약 경로는 설정 파일이 있는 디렉터리를 기준으로 읽습니다. 서버는 시작할 때 규칙과 계약을 검사하고, 각 요청에서 운영용 `rule`을 독립적으로 실행합니다.
+
+```powershell
+go run ./cmd/fin serve -app examples/transfer_quotes_app.json
+```
+
+다른 PowerShell에서 기존 JSON 계약 형식으로 금액을 보냅니다.
+
+```powershell
+$quote = @{
+    schema_version = '1'
+    rule = 'transfer_fee_krw_v1'
+    inputs = @{ amount = @{ currency = 'KRW'; amount = '10000' } }
+} | ConvertTo-Json -Depth 4
+Invoke-RestMethod http://127.0.0.1:8082/transfer-quotes -Method Post -ContentType 'application/json' -Body $quote
+```
+
+```json
+{"schema_version":"1","rule":"transfer_fee_krw_v1","status":"ok","result":{"currency":"KRW","amount":"500"}}
+```
+
+이 경로는 KRW 정수 금액의 수수료 조회용입니다. 예제 계약에서 USD, 소수점이 있는 원화, 0원은 규칙 실행 전에 HTTP 400과 `E_CONTRACT_INPUT`으로 거절합니다. 서버는 `127.0.0.1`에서 요청을 받으며 기본 포트는 `8082`입니다.
+
+### Record 견적을 브라우저에서 실행하기
+
+```powershell
+go run ./cmd/fin serve -app examples/transfer_quotes_record_app.json -port 8083
+```
+
+[송금 견적 콘솔](http://127.0.0.1:8083/)을 열면 같은 서버의 `POST /transfer-quotes`에 실제 요청을 보냅니다. 입력값을 바꾸거나 오류 예제를 선택하면 전송한 JSON과 HTTP 응답이 화면에 표시됩니다.
+
+[스키마 3 계약](contracts/transfer_quote_krw_v1.json)은 `transfer` Record에 `request_id`, `from_account`, `to_account`, `amount`를 요구합니다. [견적 규칙](examples/transfer_quote_krw_v1.fin)은 수수료를 원 단위로 정산한 다음, 수수료와 총 차감액을 `quote` Record로 반환합니다.
+
+```json
+{
+  "schema_version": "3",
+  "rule": "transfer_quote_krw_v1",
+  "inputs": {
+    "transfer": {
+      "request_id": "quote-001",
+      "from_account": "A",
+      "to_account": "B",
+      "amount": {"currency": "KRW", "amount": "10000"}
+    }
+  }
+}
+```
+
+정상 응답의 `result.fee.amount`는 `"500"`, `result.total_debit.amount`는 `"10500"`입니다. 필수 필드 누락, 다른 통화, 허용 범위 초과는 `HTTP 400`과 `E_CONTRACT_INPUT`으로 반환됩니다. 최대 송금액은 5% 수수료까지 합해 부호 있는 64비트 정수 범위에 맞도록 정했습니다. 이 경로는 견적 계산용입니다.
+
+### 송금 콘솔 실행
+
+Go 1.27.3 이상이 설치된 Windows에서 저장소 루트의 PowerShell을 엽니다. 콘솔은 로컬 SQLite 파일과 테스트 계좌를 사용합니다.
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+go run ./cmd/fin serve -app examples/transfer_app.json -db build/finlang-transfers.sqlite -seed-demo -port 8084
+```
+
+브라우저에서 [송금 콘솔](http://127.0.0.1:8084/)을 엽니다. 요청 ID와 계좌, 금액을 입력하고 **견적 요청**으로 예상 금액을 확인합니다. **송금 확정**을 누르면 `POST /transfers`를 호출합니다. 새 DB의 A·B 계좌는 각각 20,000원·2,000원으로 시작합니다. A에서 B로 10,000원을 보내면 A는 9,500원, B는 12,000원, 수수료 계정은 500원이 되고, 콘솔에 송금 전후 잔액과 원장 항목 세 건이 표시됩니다. `-seed-demo`는 기존 잔액을 유지하면서 빠진 예제 계좌를 추가합니다.
+
+[송금 앱 설정](examples/transfer_app.json)에서 `action: "transfer"`가 지정된 경로는 [송금 계획 규칙](examples/transfer_plan_krw_v1.fin)과 [Record 계약](contracts/transfer_plan_krw_v1.json)을 사용합니다. 규칙은 원 단위로 정산한 수수료를 포함해 `debit`, `credit`, `fee`를 Money로 반환합니다. 실행기는 입금액이 요청액과 같고 출금액이 입금액과 수수료의 합인지 검사한 뒤, 요청에 있는 계좌와 지정된 수수료 계정에 금액을 반영합니다.
+
+SQLite는 요청 ID 검사, 잔액 확인, 세 계좌 갱신, 원장 기록, 거래 전후 잔액과 계획 감사 자료 저장을 한 트랜잭션에서 처리합니다. 이미 확정한 요청은 같은 ID와 내용으로 다시 보내면 당시 기록을 반환합니다. 새 계약에서 허용 범위가 좁아진 경우에도 확정 거래는 보관된 계약으로 확인할 수 있으며, 신규 거래에는 현재 계약이 적용됩니다. 같은 ID에 다른 내용을 보내거나 수수료를 포함한 잔액이 부족하면 HTTP 409를 반환합니다.
+
+### 송금 규칙을 버전별로 배포하고 재현하기
+
+송금 경로의 `rule_version`과 `contract_version`은 서로 독립된 파일 버전입니다. 서버는 시작할 때 해당 `.fin` 파일과 계약 JSON의 원본을 SHA-256과 함께 같은 SQLite DB에 보관합니다. 같은 버전에 다른 파일을 지정하면 서버 시작을 거절합니다. 기존 설정처럼 버전을 생략하면 파일 해시로 버전을 정합니다.
+
+#### 1. 새 DB에 5% 규칙을 등록
+
+첫 번째 PowerShell에서 [5% 앱](examples/transfer_app.json)을 시작합니다. 두 번째 버전을 실행할 때도 이 터미널의 `$db`를 사용합니다.
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+$db = Join-Path 'build' ("versioned-transfers-{0}.sqlite" -f (New-Guid))
+go run ./cmd/fin serve -app examples/transfer_app.json -db $db -seed-demo -port 8086
+```
+
+#### 2. 5% 규칙으로 송금
+
+다른 PowerShell에서 A→B로 10,000원을 보냅니다. 응답의 원장에 출금 10,500원, 입금 10,000원, 수수료 500원이 표시됩니다.
+
+```powershell
+function Send-DemoTransfer {
+    param([string]$Id, [string]$From, [string]$To)
+    $body = @{
+        schema_version = '3'
+        rule = 'transfer_plan_krw_v1'
+        inputs = @{
+            transfer = @{
+                request_id = $Id
+                from_account = $From
+                to_account = $To
+                amount = @{ currency = 'KRW'; amount = '10000' }
+            }
+        }
+    } | ConvertTo-Json -Depth 6
+    Invoke-RestMethod 'http://127.0.0.1:8086/transfers' -Method Post -ContentType 'application/json' -Body $body
+}
+
+(Send-DemoTransfer -Id 'demo-fee-5' -From 'A' -To 'B').result.postings | Format-Table
+```
+
+#### 3. 같은 DB에서 10% 규칙으로 전환
+
+첫 번째 터미널에서 **Ctrl+C**로 5% 서버를 종료하고, 같은 DB로 [10% API 앱](examples/transfer_app_v2.json)을 시작합니다. `rule` 이름과 계약 스키마는 그대로이고 규칙·계약 파일 버전은 각각 `2`입니다.
+
+```powershell
+go run ./cmd/fin serve -app examples/transfer_app_v2.json -db $db -port 8086
+```
+
+#### 4. 10% 규칙으로 송금
+
+두 번째 터미널에서 새 요청 ID로 B→A에 10,000원을 보냅니다. B는 첫 거래로 잔액이 12,000원이므로 총 11,000원을 출금할 수 있습니다.
+
+```powershell
+(Send-DemoTransfer -Id 'demo-fee-10' -From 'B' -To 'A').result.postings | Format-Table
+```
+
+#### 5. 거래 당시 버전으로 재현
+
+첫 번째 터미널에서 서버를 종료하고 두 거래를 재현합니다.
+
+```powershell
+go run ./cmd/fin replay-transfer -db $db -id 'demo-fee-5'
+go run ./cmd/fin replay-transfer -db $db -id 'demo-fee-10'
+```
+
+| 요청 ID | 규칙·계약 파일 버전 | 수수료 | 총 차감액 |
+| --- | --- | ---: | ---: |
+| `demo-fee-5` | `1` / `1` | 500원 | 10,500원 |
+| `demo-fee-10` | `2` / `2` | 1,000원 | 11,000원 |
+
+감사 기록의 `contract_version`은 JSON 스키마 `3`을 뜻하고, `contract_artifact_version`은 등록한 계약 파일 버전입니다. `replay-transfer`는 SQLite를 읽기 전용으로 열어 보관된 원본과 입력으로 계산하고, 당시 반영 계획·원장·잔액 변화와 대조합니다. 3단계에서 해시만 기록한 거래는 해시가 일치하는 원본 규칙과 계약이 DB에 등록돼 있어야 재현할 수 있습니다.
+
+## 로컬 송금 백엔드 체험
+
+`fintransfer`는 테스트용 계좌와 원장을 SQLite 파일에 저장하는 Go 백엔드입니다. 서버는 `127.0.0.1`에서만 요청을 받습니다. 샘플 finlang 규칙은 송금액의 5%를 계산하고, KRW는 원 단위로, USD는 센트 단위로 `HALF_EVEN` 정산합니다. 예제는 같은 통화의 계좌 간 이체를 다룹니다.
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+go run ./cmd/fintransfer -db build/transfer-demo.sqlite -seed-demo
+```
+
+다른 PowerShell에서 아래 요청을 보냅니다. `amount_minor`에는 KRW면 원, USD면 센트를 정수로 넣습니다. 예제 계좌 A와 B는 각각 20,000원과 2,000원으로 시작합니다. USD 계좌는 U1과 U2입니다.
+
+```powershell
+$request = @{
+    request_id = 'demo-001'
+    from_account = 'A'
+    to_account = 'B'
+    currency = 'KRW'
+    amount_minor = 10000
+} | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8081/transfers -Method Post -ContentType 'application/json' -Body $request
+```
+
+출금 계좌에서 10,500원을 차감하고 입금 계좌에 10,000원, 수수료 계정에 500원을 기록합니다. 세 원장 항목과 규칙 감사 기록은 같은 DB 트랜잭션으로 확정합니다. 확정된 요청을 같은 ID와 내용으로 보내면 기존 결과를 반환합니다. 같은 ID로 금액이나 계좌를 바꾸면 HTTP 409를 반환합니다. `-seed-demo`로 다시 시작하면 누락된 예제 계좌만 추가합니다.
+
+```powershell
+go run ./cmd/fintransfer -db build/transfer-demo.sqlite -replay demo-001
+go test ./cmd/fintransfer ./internal/transfer ./internal/transferfee ./internal/transferhttp
+```
+
+재현 명령은 DB를 읽기 전용으로 열고 기록된 입력과 수수료 규칙으로 다시 계산해 저장된 결과와 원장 항목을 확인합니다. 규칙이나 계약의 해시가 기록과 다르면 재현을 거절합니다.
+
 ## 언어 범위와 실행 한도
 
 `let`, Decimal·Money·Bool·String, 비교, `if`·`else`, `fn`·`return`, 어휘적 스코프·클로저·재귀를 지원합니다. `if` 조건은 Bool만 허용합니다. 같은 환경에서 이름을 다시 선언할 수 없고 함수는 `return`으로 값을 반환해야 합니다. 세미콜론은 문장 사이에 쓰며 파일 끝과 닫는 중괄호 직전에는 생략할 수 있습니다.
+
+### 리스트와 반복
+
+일반 실행에서 `[1, 2, 3]`으로 리스트를 만들고 `values[0]`으로 첫 값을 읽습니다. 인덱스는 0 이상의 정수여야 하며 잘못된 인덱스는 `E_INDEX`로 알립니다. `len(values)`는 원소 수를 반환합니다. `range(start, stop)`은 정수 구간을 한 칸씩 순회하며 끝값을 포함하지 않습니다. 시작·끝·원소 수는 부호 있는 64비트 정수 범위에 들어야 하며, `start >= stop`이면 빈 구간입니다. 구간은 원소 전체를 메모리에 만들지 않고 `len`과 인덱스로도 조회할 수 있습니다.
+
+`for name in values { ... }`는 리스트나 구간을 순서대로 순회합니다. 각 반복의 이름은 그 반복에서만 쓸 수 있습니다. `var total = 0;`으로 갱신할 이름을 선언하고 `total = total + value;`로 값을 바꿉니다. 리스트의 원소와 `let` 이름은 읽기 전용입니다. 본문이 비어 있어도 반복마다 실행 한도를 사용하며, 한도를 넘으면 `E_EXECUTION_LIMIT`를 냅니다.
+
+```sh
+go run ./cmd/fin -file examples/sum_positive.fin
+go run ./cmd/fin -file examples/find_first.fin
+```
+
+양수 합산 예제는 `1.6`을 출력합니다. 첫 일치 항목 예제는 값이 처음 나타난 0 기준 인덱스 `1`과, 없는 값을 검색했을 때의 `-1`을 차례대로 출력합니다.
+
+### 조건에 따라 값 고르기
+
+`let rate_for_tier = if (principal >= money("KRW", 1000000)) { 0.0075 } else { 0.01 };`처럼 `if`의 결과를 변수에 담을 수 있습니다. 값으로 쓰는 `if`에는 `else`가 필요하고, 각 분기에 식을 하나씩 적습니다. 조건에 맞는 분기만 평가합니다.
+
+`&&`는 양쪽이 모두 참일 때, `||`는 한쪽이라도 참일 때 참입니다. 비교, `&&`, `||` 순으로 먼저 계산합니다. 왼쪽만으로 결과가 정해지면 오른쪽은 건너뛰며, 평가한 조건과 피연산자는 Bool이어야 합니다. 운영용 `-rule-only`에서는 실행 전에 두 분기와 양쪽 피연산자를 모두 검사합니다.
+
+### 리스트 집계와 탐색
+
+| 호출 | 동작 |
+| --- | --- |
+| `sum(values)` | Decimal끼리 또는 같은 통화의 Money끼리 더합니다. 빈 리스트는 `E_EMPTY_LIST`입니다. 기존 `sum(a, b)`도 사용할 수 있습니다. |
+| `all(values)`, `any(values)` | Bool 리스트를 받아 모두 참인지, 하나라도 참인지 검사합니다. 빈 리스트의 결과는 각각 `true`, `false`입니다. |
+| `sorted(values)` | Decimal 또는 같은 통화의 Money를 오름차순으로 정렬한 새 리스트를 반환합니다. 같은 값의 입력 순서를 보존하고, 빈 리스트는 `[]`를 반환합니다. |
+| `lower_bound(values, key)` | 오름차순 리스트에서 `key` 이상인 첫 인덱스를 반환합니다. 해당 값이 없으면 리스트 길이를, 빈 리스트에 유효한 키를 넣으면 `0`을 반환합니다. 입력 전체의 순서·자료형·통화를 확인한 뒤 이진 탐색하며, 정렬되지 않은 입력은 `E_UNSORTED_LIST`입니다. |
+
+일반 파일 실행으로 [구간별 수수료 예제](examples/tiered_fee.fin)를 실행할 수 있습니다.
+
+```sh
+go run ./cmd/fin -file examples/tiered_fee.fin
+```
+
+예제는 100만 원과 500만 원을 경계로 각각 1%, 0.75%, 0.5%를 선택합니다. 경계값은 다음 구간에 들어가며, 선택한 요율을 전체 원금에 곱한 뒤 원 단위로 정산합니다. 경계마다 바로 아래·정확히 경계·바로 위의 요율과 수수료를 출력합니다.
+
+### 거래를 레코드와 맵으로 묶기
+
+`record { id: "T001", amount: money("KRW", 1000) }`처럼 관련 값을 이름 붙은 필드로 묶습니다. `transaction.amount`로 필드를 읽으며, 없는 필드는 `E_MISSING_FIELD`입니다.
+
+`map { "KRW": money("KRW", 0) }`은 문자열 키로 값을 찾는 맵입니다. `totals["KRW"]`와 `totals.get("KRW")`는 같은 값을 읽고, 없는 키는 `E_MISSING_KEY`입니다. 키가 있을 때만 읽으려면 `totals.has("KRW")`를 먼저 사용합니다. `totals.with(key, value)`는 항목을 추가하거나 교체한 새 맵을 반환하며, `keys()`는 키가 처음 추가된 순서대로 돌려줍니다.
+
+| 호출 | 동작 |
+| --- | --- |
+| `enumerate(values)` | 리스트나 구간을 `index`(0부터 시작)와 `value`를 담은 레코드 목록으로 만듭니다. |
+| `zip_exact(left, right)` | 두 리스트나 구간을 같은 위치끼리 묶어 `left`와 `right`를 담은 레코드 목록으로 만듭니다. 길이가 다르면 `E_LENGTH_MISMATCH`입니다. |
+| `values.len()`, `values.sum()`, `values.sorted()` | 리스트를 첫 인수로 받는 기존 함수와 같습니다. |
+| `value.round(2, "HALF_EVEN")`, `fee.settle(0, "HALF_UP")` | 각각 Decimal의 `round`와 Money의 `settle`을 같은 방식으로 호출합니다. |
+
+[통화별 거래 합산 예제](examples/group_transactions.fin)는 거래 ID와 금액을 짝지은 뒤 통화 코드를 키로 삼아 합산합니다. 서로 다른 통화는 각자의 합계에 들어갑니다.
+
+```sh
+go run ./cmd/fin -file examples/group_transactions.fin
+```
+
+```text
+KRW 3500
+USD 20
+```
+
+### 행렬과 FIFO 큐
+
+`matrix([[1, 2], [3, 4]])`로 Decimal 행렬을 만듭니다. 각 행에는 같은 수의 원소가 있어야 하며 행과 열은 하나 이상이어야 합니다. `a + b` 또는 `mat_add(a, b)`는 같은 크기의 행렬을 더합니다. `a * b` 또는 `mat_mul(a, b)`는 왼쪽의 열 수와 오른쪽의 행 수가 같을 때 곱합니다. `a.transpose()` 또는 `transpose(a)`는 행과 열을 바꿉니다. 형태나 크기가 맞지 않으면 `E_MATRIX_SHAPE`입니다. 계산은 기존 Decimal 정밀도와 실행 한도를 따릅니다.
+
+`queue()`는 빈 FIFO 큐를 만듭니다. `enqueue(q, value)` 또는 `q.enqueue(value)`는 값을 맨 뒤에 붙인 새 큐를 반환합니다. `dequeue(q)` 또는 `q.dequeue()`는 가장 먼저 들어온 `value`와 남은 `queue`를 레코드로 반환합니다. `len(q)`와 `q.len()`으로 길이를 확인할 수 있으며, 빈 큐에서 꺼내면 `E_EMPTY_QUEUE`입니다.
+
+```sh
+go run ./cmd/fin -file examples/matrix_operations.fin
+go run ./cmd/fin -file examples/fifo_queue.fin
+```
 
 | 항목 | 기본 한도 |
 | --- | ---: |
@@ -379,13 +649,13 @@ go run ./cmd/fin -file examples/interest_rule_v1.fin -contract contracts/interes
 | 토큰 | 256바이트 |
 | 파일 소스·REPL 한 줄 | 1 MiB |
 | 구문 중첩 | 128 |
-| 평가 노드 실행 | 100,000 |
+| 평가 노드와 반복 실행 | 100,000 |
 | 함수 호출 깊이 | 64 |
 | trace 이벤트 | 10,000 |
 
 한도를 넘으면 오류로 알립니다. 진단은 가능한 경우 파일명·행·열·오류 코드를 포함합니다. CLI 종료 코드는 성공 `0`, 소스·계산·계약 오류 `1`, 사용법·파일 입출력 오류 `2`입니다. REPL은 개별 계산 오류 후 다음 줄을 읽으며 실행 한도는 줄마다 초기화합니다.
 
-자동 형 변환, 문자열 연결, 논리 AND·OR, 배분 연산, JIT, COBOL 실행·호환 계층은 현재 제공하지 않습니다.
+자동 형 변환, 문자열 연결, 배분 연산, JIT, COBOL 실행·호환 계층은 현재 제공하지 않습니다.
 
 ## 코드 구조
 
@@ -403,6 +673,7 @@ flowchart LR
 | 경로 | 역할 |
 | --- | --- |
 | [`cmd/fin`](cmd/fin), [`internal/cli`](internal/cli) | 실행 진입점과 CLI |
+| [`cmd/fintransfer`](cmd/fintransfer), [`internal/transfer`](internal/transfer) | 로컬 송금 HTTP 백엔드와 SQLite 원장 |
 | [`internal/decimal`](internal/decimal) | 십진 표현·정확한 연산·반올림·표시 |
 | [`internal/money`](internal/money) | 통화 검사와 명시적 정산 |
 | [`internal/fx`](internal/fx) | 고정·HTTP 환율과 Alpha Vantage 응답 검증 |
@@ -416,6 +687,38 @@ flowchart LR
 | [`examples`](examples), [`contracts`](contracts), [`testdata`](testdata) | 실행 예제·계약·검증 입력 |
 
 ## 검증 재현하기
+
+### 송금 백엔드 검증
+
+Windows/amd64에서 Go 1.27.3과 GnuCOBOL 3.2.0으로 아래 항목을 확인했습니다.
+
+| 범위 | 확인한 결과 |
+| --- | --- |
+| 전체 Go 테스트 | 하위 사례 포함 1,302개 통과, 실패·건너뜀 0개 |
+| HTTP·계약 | 10,000원 견적에서 수수료 500원, 총 차감액 10,500원. 필수 필드 누락·통화 불일치·금액 초과는 HTTP 400으로 거절 |
+| SQLite 원장 | 원장 기록 중 오류가 발생하면 잔액과 원장을 함께 롤백. 계약 범위가 좁아져도 확정 거래의 동일 재요청은 기존 기록 반환. 잔액이 한 건만 허용할 때 두 건을 동시에 보내도 한 건만 확정 |
+| 버전 전환·재현 | 같은 DB에서 5%→10% 전환 후 기존 거래는 500원, 신규 거래는 1,000원으로 재현. 성공·변조 거절 모두 재현 전후 SQLite 파일 SHA-256 일치 |
+| 경쟁 상태 검사 | 송금·버전 보관·읽기 전용 재현 테스트를 `-race`로 실행해 통과 |
+| GnuCOBOL 3.2.0 회귀 비교 | 송금 26건, 이자·수수료·합산 3,072건 모두 일치 |
+
+```powershell
+go test ./internal/cli ./internal/transfer -run 'TestServe|TestPlanArtifacts|TestReadPlannedTransfer' -count=1
+go test -race ./internal/cli ./internal/transfer -run 'TestServePlannedTransfer|TestPlanArtifacts|TestReadPlannedTransfer' -count=1
+go vet ./...
+```
+
+GnuCOBOL과 C 도구 체인을 설정한 뒤 `$env:FINLANG_REQUIRE_COBOL = '1'`과 `go test -count=1 ./...`를 실행하면 전체 Go 테스트와 두 COBOL 비교를 함께 실행합니다. [COBOL 환경 설정](#cobol과-같은-입력으로-비교하기)
+
+### 운영용 컬렉션 규칙 검증
+
+Windows/amd64에서 Go 1.27.3과 GnuCOBOL 3.2.0으로 확인했습니다.
+
+| 검증 | 결과 |
+| --- | --- |
+| 전체 Go 테스트 | 하위 사례 포함 1,082개 통과, 실패·건너뜀 0개 |
+| 컬렉션 계약과 실행 정책 | 빈 거래 목록, 계약의 128개 경계, 크기·실행 한도, 중복 필드, 통화·범위·소수 자릿수 오류, 비허용 호출 차단 확인 |
+| 감사 재현 | 거래 합계 `KRW 3500.00`, `USD 20.00`의 JSON이 최초 실행과 일치. 스키마 1 단리 감사 기록에서도 `KRW 25000` 재현 |
+| GnuCOBOL 회귀 비교 | 기존 이자·수수료·합산 3,072건 일치, 불일치 0건, 계약 단계 거절 40건 별도 집계 |
 
 ### v0.5.0 검증 결과
 
@@ -497,7 +800,7 @@ GnuCOBOL과 C 도구 체인이 준비된 PowerShell에서:
 New-Item -ItemType Directory -Force build | Out-Null
 $env:FINLANG_REQUIRE_COBOL = '1'
 $env:FINLANG_COMPAT_REPORT = Join-Path (Get-Location) 'build/compatibility.jsonl'
-go test ./tests/compat -run TestCOBOL -count=1 -v
+go test ./tests/compat -run '^TestCOBOLCompatibility$' -count=1 -v
 ```
 
 `COBC`로 컴파일러 경로를 지정할 수 있습니다. 도구가 없으면 일반 테스트는 비교를 건너뛰므로, 실제 비교 확인에는 위처럼 `FINLANG_REQUIRE_COBOL=1`을 사용합니다.
@@ -508,6 +811,19 @@ go test ./tests/compat -run TestCOBOL -count=1 -v
 - [사용 과제 평가 계획과 빈 기록지](docs/evaluation/usability.md)
 
 이 결과는 **명시한 프로필과 입력 집합**에 한정됩니다. IBM Enterprise COBOL이나 은행 시스템 전체의 호환성을 뜻하지 않습니다. 실제 참가자 사용성 평가는 미실행이며, 이번 덧셈 실험에서는 실험용 문자열 구현이 현재 스케일드 정수 구현보다 빨랐습니다. 따라서 접근성·속도 우위를 검증했다고 주장하지 않습니다.
+
+### 같은 통화 송금 비교
+
+[COBOL 송금 규칙](testdata/cobol/transfer_v1.cob)은 `PACKED-DECIMAL`로 수수료 5%를 계산하고 `NEAREST-EVEN`으로 최소 화폐 단위까지 정산합니다. 각 사례의 초기 잔액을 받아 최종 잔액과 원장 항목을 출력합니다. 비교 테스트는 같은 입력을 실제 Go·finlang 송금 백엔드에 전달하고 SQLite에서 잔액과 원장 행을 읽습니다. 결과와 수동 기준값을 함께 대조했습니다.
+
+GnuCOBOL 3.2.0에서 **26건 모두 일치**했습니다. 성공 19건은 수수료·총 차감액·세 계정의 최종 잔액·세 원장 항목이 일치했고, SQLite에 저장된 수수료 감사 기록도 모두 재현했습니다. 잔액 부족 4건과 정수 범위 초과 3건은 초기 잔액을 유지하고 원장 항목을 남기지 않았습니다. 송금 규칙의 결과는 이 비교에서 확인했고, DB 장애 시 롤백과 동시 출금은 Go·SQLite 통합 테스트에서 확인합니다.
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+$env:FINLANG_REQUIRE_COBOL = '1'
+$env:FINLANG_TRANSFER_COMPAT_REPORT = Join-Path (Get-Location) 'build/transfer-compatibility.jsonl'
+go test ./tests/compat -run '^TestCOBOLTransfer' -count=1 -v
+```
 
 ## 다음 단계
 

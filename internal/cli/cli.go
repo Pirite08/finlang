@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,8 @@ import (
 
 const Version = "v0.5.0"
 const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
+	"       fin serve -app path [-port port] [-db path [-seed-demo]]\n" +
+	"       fin replay-transfer -db path -id request-id\n" +
 	"  no arguments  start the single-line REPL\n" +
 	"  -file path    execute a UTF-8 source file\n" +
 	"  -json         run the contract entry and emit one JSON result\n" +
@@ -40,6 +43,7 @@ const help = "Usage: fin [-file path [-trace path]] | [-version] | [-h]\n" +
 
 type command struct {
 	file, contract, input, trace, rule     string
+	contractVersion                        string
 	opsLog, audit, replayAudit             string
 	fxFixed, fxSnapshot, fxURL, fxProvider string
 	fxPolicy                               fx.LivePolicy
@@ -50,6 +54,14 @@ type command struct {
 
 // Run returns 0 on success, 1 for language/contract errors, 2 for usage/host I/O.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) != 0 {
+		switch args[0] {
+		case "serve":
+			return serveCommand(args[1:], stderr)
+		case "replay-transfer":
+			return runTransferReplay(context.Background(), args[1:], stdout, stderr)
+		}
+	}
 	c := command{stdout: stdout, stderr: stderr}
 	flags := flag.NewFlagSet("fin", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -185,7 +197,7 @@ func (c command) fail(err error, code int) int {
 		errorCode = "E_OUTPUT_IO"
 	}
 	if c.json {
-		if writeErr := contract.EncodeError(c.stdout, c.rule, err); writeErr != nil {
+		if writeErr := contract.EncodeErrorVersion(c.stdout, c.contractVersion, c.rule, err); writeErr != nil {
 			fmt.Fprintln(c.stderr, writeErr)
 			code = 2
 			errorCode = "E_OUTPUT_IO"

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/transfer-quotes",
+      "rule": "../internal/transferfee/rules/krw.fin",
+      "contract": "../internal/transferfee/rules/krw.json"
+    }
+  ]
+}

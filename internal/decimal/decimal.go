@@ -28,6 +28,15 @@ func (d Decimal) readCoefficient() *big.Int {
 // Sign returns -1, 0, or 1 according to the sign of d.
 func (d Decimal) Sign() int { return d.readCoefficient().Sign() }
 
+// Int64Exact returns the integer value if d fits in an int64 without rounding.
+func (d Decimal) Int64Exact() (int64, bool) {
+	coefficient := d.readCoefficient()
+	if d.scale != 0 || !coefficient.IsInt64() {
+		return 0, false
+	}
+	return coefficient.Int64(), true
+}
+
 func pow10(n uint32) *big.Int {
 	return new(big.Int).Exp(big.NewInt(10), new(big.Int).SetUint64(uint64(n)), nil)
 }

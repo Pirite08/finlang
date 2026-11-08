@@ -50,9 +50,8 @@ type ruleSummary struct {
 	Branches               map[string]int `json:"branches"`
 }
 
-// One sequential owner writes the optional report and compiles each reference
-// once. Never use t.Parallel here: case and rule order form part of the evidence.
-func TestCOBOLCompatibility(t *testing.T) {
+func findCOBOLCompiler(t *testing.T) string {
+	t.Helper()
 	compiler := os.Getenv("COBC")
 	if compiler == "" {
 		compiler = "cobc"
@@ -69,6 +68,13 @@ func TestCOBOLCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return compiler
+}
+
+// One sequential owner writes the optional report and compiles each reference
+// once. Never use t.Parallel here: case and rule order form part of the evidence.
+func TestCOBOLCompatibility(t *testing.T) {
+	compiler := findCOBOLCompiler(t)
 	rules := make([]ruleRuntime, len(ruleNames))
 	for i, name := range ruleNames {
 		rules[i] = loadRule(t, name)
@@ -92,7 +98,7 @@ func TestCOBOLCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence := newEvidence(t)
+	evidence := newEvidence(t, "FINLANG_COMPAT_REPORT")
 	files := []fileHash{}
 	for _, name := range ruleNames {
 		for _, path := range []string{"examples/" + name + ".fin", "contracts/" + name + ".json", "testdata/cobol/" + name + ".cob"} {
@@ -247,12 +253,12 @@ type evidenceWriter struct {
 	encoder *json.Encoder
 }
 
-func newEvidence(t *testing.T) *evidenceWriter {
+func newEvidence(t *testing.T, reportVariable string) *evidenceWriter {
 	t.Helper()
 	var writer io.Writer = io.Discard
-	if path := os.Getenv("FINLANG_COMPAT_REPORT"); path != "" {
+	if path := os.Getenv(reportVariable); path != "" {
 		if !filepath.IsAbs(path) {
-			t.Fatal("FINLANG_COMPAT_REPORT must be an absolute path")
+			t.Fatalf("%s must be an absolute path", reportVariable)
 		}
 		file, err := os.Create(path)
 		if err != nil {

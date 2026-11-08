@@ -57,6 +57,66 @@ func TestNumericLiteralPreserved(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+func TestCompositeTokensAndNumericMemberAccess(t *testing.T) {
+	tokens := scan(t, "record { amount: 1.25.round() }")
+	want := []token.Kind{token.Identifier, token.LBrace, token.Identifier, token.Colon, token.Number, token.Dot, token.Identifier, token.LParen, token.RParen, token.RBrace, token.EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("got %d tokens, want %d", len(tokens), len(want))
+	}
+	for i, kind := range want {
+		if tokens[i].Kind != kind {
+			t.Errorf("token %d = %s, want %s", i, tokens[i].Kind, kind)
+		}
+	}
+	if tokens[4].Literal != "1.25" || tokens[4].Span.End != tokens[5].Span.Start {
+		t.Fatalf("unexpected decimal and dot: %+v, %+v", tokens[4], tokens[5])
+	}
+	for _, source := range []string{"1.", "1..2", "1.25.6"} {
+		l, err := lexer.New("test.fin", source, config.DefaultLimits())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.Next(); diagnostic.CodeOf(err) != "E_INVALID_NUMBER" {
+			t.Fatalf("%q: got %v, want E_INVALID_NUMBER", source, err)
+		}
+	}
+}
+func TestLogicalOperatorTokens(t *testing.T) {
+	tokens := scan(t, "true&&false || !true")
+	want := []token.Kind{token.True, token.And, token.False, token.Or, token.Bang, token.True, token.EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("got %d tokens, want %d", len(tokens), len(want))
+	}
+	for i, kind := range want {
+		if tokens[i].Kind != kind {
+			t.Errorf("token %d = %s, want %s", i, tokens[i].Kind, kind)
+		}
+	}
+	if span := tokens[1].Span; span.Start != 4 || span.End != 6 {
+		t.Fatalf("&& span = %+v", span)
+	}
+	for _, source := range []string{"&", "|", "& |"} {
+		l, err := lexer.New("test.fin", source, config.DefaultLimits())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.Next(); diagnostic.CodeOf(err) != "E_INVALID_TOKEN" {
+			t.Fatalf("%q: got %v, want E_INVALID_TOKEN", source, err)
+		}
+	}
+}
+func TestListTokensAndContextualIdentifiers(t *testing.T) {
+	tokens := scan(t, "var for in [0.100]")
+	want := []token.Kind{token.Identifier, token.Identifier, token.Identifier, token.LBracket, token.Number, token.RBracket, token.EOF}
+	if len(tokens) != len(want) {
+		t.Fatalf("got %d tokens, want %d", len(tokens), len(want))
+	}
+	for i, kind := range want {
+		if tokens[i].Kind != kind {
+			t.Errorf("token %d = %s, want %s", i, tokens[i].Kind, kind)
+		}
+	}
+}
 func TestUTF8CommentPosition(t *testing.T) {
 	l, err := lexer.New("한글.fin", "// 한글 주석\n\"한\" @", config.DefaultLimits())
 	if err != nil {

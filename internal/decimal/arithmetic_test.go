@@ -43,6 +43,29 @@ func TestArithmeticExact(t *testing.T) {
 	}
 }
 
+func TestInt64Exact(t *testing.T) {
+	cases := []struct {
+		text string
+		want int64
+		ok   bool
+	}{
+		{"0.000", 0, true},
+		{"1.0", 1, true},
+		{"-9223372036854775808", -9223372036854775808, true},
+		{"9223372036854775807", 9223372036854775807, true},
+		{"-9223372036854775809", 0, false},
+		{"9223372036854775808", 0, false},
+		{"0.5", 0, false},
+	}
+	for _, tc := range cases {
+		value := mustParse(t, tc.text)
+		got, ok := value.Int64Exact()
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%s: got (%d, %t), want (%d, %t)", tc.text, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestOperandsRemainUnchanged(t *testing.T) {
 	a, b := mustParse(t, "123.4500"), mustParse(t, "-0.06")
 	alias := a

@@ -124,6 +124,9 @@ func (l *Lexer) Next() (token.Token, error) {
 			if isDigit(c) {
 				l.advance()
 			} else if c == '.' {
+				if l.offset+1 < len(l.source) && isStart(l.source[l.offset+1]) {
+					break
+				}
 				if dot {
 					return token.Token{}, l.fail("E_INVALID_NUMBER", "number has more than one decimal point", start)
 				}
@@ -191,7 +194,13 @@ func (l *Lexer) Next() (token.Token, error) {
 			l.advance()
 			kind = token.Kind(string(b) + "=")
 		}
-	case '+', '-', '*', '/', '(', ')', '{', '}', ',', ';':
+	case '&', '|':
+		if !l.at(b) {
+			return token.Token{}, l.fail("E_INVALID_TOKEN", "unexpected character", start)
+		}
+		l.advance()
+		kind = token.Kind(l.source[start.Start:l.offset])
+	case '+', '-', '*', '/', '(', ')', '{', '}', '[', ']', ':', '.', ',', ';':
 	default:
 		return token.Token{}, l.fail("E_INVALID_TOKEN", "unexpected character", start)
 	}

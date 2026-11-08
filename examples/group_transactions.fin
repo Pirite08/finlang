@@ -1,0 +1,21 @@
+let transaction_ids = ["T001", "T002", "T003", "T004"];
+let payments = [
+    money("KRW", 1000.25),
+    money("USD", 12.34),
+    money("KRW", 2499.75),
+    money("USD", 7.66),
+];
+
+// 통화별 합계를 담습니다. with는 새 Map을 반환하므로 totals에 다시 넣습니다.
+var totals = map {};
+for pair in zip_exact(transaction_ids, payments) {
+    let transaction = record { id: pair.left, amount: pair.right };
+    let code = transaction.amount.currency();
+    let current = if (totals.has(code)) { totals[code] } else { money(code, 0) };
+    totals = totals.with(code, current + transaction.amount);
+}
+
+// 키는 처음 거래가 나타난 순서대로 읽습니다.
+for entry in enumerate(totals.keys()) {
+    print(totals[entry.value]);
+}

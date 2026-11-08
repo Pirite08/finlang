@@ -25,14 +25,18 @@ type Parameter struct {
 	Min      string `json:"min"`
 	Max      string `json:"max"`
 	ScaleMax uint32 `json:"scale_max"`
+	list     *listSpec
+	record   []fieldSpec
 }
 
 type OutputSpec struct {
-	Type     string `json:"type"`
-	Currency string `json:"currency"`
-	Min      string `json:"min"`
-	Max      string `json:"max"`
-	Scale    uint32 `json:"scale"`
+	Type        string `json:"type"`
+	Currency    string `json:"currency"`
+	Min         string `json:"min"`
+	Max         string `json:"max"`
+	Scale       uint32 `json:"scale"`
+	currencyMap *currencyMapSpec
+	record      []fieldSpec
 }
 
 func contractError(code diagnostic.Code, format string, args ...any) error {
@@ -89,16 +93,40 @@ func Load(r io.Reader, limits config.Limits) (Spec, error) {
 	if err != nil {
 		return spec, contractError("E_CONTRACT", "%v", err)
 	}
-	if spec.SchemaVersion != "1" || !identifier(spec.Rule) || !identifier(spec.Entry) || len(spec.Rule) > limits.MaxTokenBytes || len(spec.Entry) > limits.MaxTokenBytes {
+	if !supportedSchema(spec.SchemaVersion) || !identifier(spec.Rule) || !identifier(spec.Entry) || len(spec.Rule) > limits.MaxTokenBytes || len(spec.Entry) > limits.MaxTokenBytes {
 		return spec, contractError("E_CONTRACT", "invalid schema version, rule or entry")
 	}
 	parameters, ok := root["parameters"].([]any)
 	if !ok {
 		return spec, contractError("E_CONTRACT", "parameters must be an array")
 	}
+	if spec.SchemaVersion != "1" && len(parameters) > collectionItemLimit(limits) {
+		return spec, contractError("E_CONTRACT", "too many parameters")
+	}
 	spec.Parameters = make([]Parameter, 0, len(parameters))
 	names := map[string]bool{}
 	for _, value := range parameters {
+		fields, _ := value.(map[string]any)
+		isList := spec.SchemaVersion == "2" && fields["type"] == "list"
+		isRecord := spec.SchemaVersion == "3" && fields["type"] == "record"
+		if isList || isRecord {
+			var p Parameter
+			var err error
+			if isList {
+				p, err = loadListParameter(fields, limits)
+			} else {
+				p, err = loadRecordParameter(fields, limits)
+			}
+			if err != nil {
+				return spec, contractError("E_CONTRACT", "%s parameter: %v", fields["type"], err)
+			}
+			if names[p.Name] {
+				return spec, contractError("E_CONTRACT", "invalid or duplicate parameter name %q", p.Name)
+			}
+			names[p.Name] = true
+			spec.Parameters = append(spec.Parameters, p)
+			continue
+		}
 		pmap, e := object(value, []string{"name", "type", "min", "max", "scale_max"}, []string{"currency"})
 		if e != nil {
 			return spec, contractError("E_CONTRACT", "parameter: %v", e)
@@ -138,6 +166,22 @@ func Load(r io.Reader, limits config.Limits) (Spec, error) {
 		}
 		spec.Parameters = append(spec.Parameters, p)
 	}
+	if spec.SchemaVersion == "2" {
+		output, err := loadCurrencyMapOutput(root["output"], limits)
+		if err != nil {
+			return spec, contractError("E_CONTRACT", "output: %v", err)
+		}
+		spec.Output = output
+		return spec, nil
+	}
+	if spec.SchemaVersion == "3" {
+		output, err := loadRecordOutput(root["output"], limits)
+		if err != nil {
+			return spec, contractError("E_CONTRACT", "output: %v", err)
+		}
+		spec.Output = output
+		return spec, nil
+	}
 	omap, e := object(root["output"], []string{"type", "currency", "min", "max", "scale"}, nil)
 	if e != nil {
 		return spec, contractError("E_CONTRACT", "output: %v", e)
@@ -162,4 +206,8 @@ func Load(r io.Reader, limits config.Limits) (Spec, error) {
 		return spec, contractError("E_CONTRACT", "output bounds: %v", e)
 	}
 	return spec, nil
+}
+
+func supportedSchema(version string) bool {
+	return version == "1" || version == "2" || version == "3"
 }

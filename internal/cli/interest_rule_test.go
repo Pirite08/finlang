@@ -14,6 +14,44 @@ const (
 	interestRuleInput    = "../../testdata/inputs/interest.json"
 )
 
+func TestConditionalRuleAuditReplay(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "conditional.fin")
+	audit := filepath.Join(dir, "conditional.audit.jsonl")
+	rule := `rule interest_v1 {
+    input principal in "KRW"
+    input annual_rate as decimal
+    input years as decimal
+    output result in "KRW"
+    step calculate {
+        let effective_rate = if (principal >= money("KRW", 1000000) && annual_rate > 0) {
+            annual_rate
+        } else {
+            0
+        }
+        let result = settle(principal * effective_rate * years, 0, "HALF_EVEN")
+    }
+    return result
+}`
+	if err := os.WriteFile(source, []byte(rule), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	args := []string{"-file", source, "-contract", interestRuleContract, "-json", "-rule-only"}
+	if code := Run(append(args, "-input", interestRuleInput, "-audit", audit), strings.NewReader(""), &out, &stderr); code != 0 {
+		t.Fatalf("rule run: exit=%d, stdout=%s, stderr=%s", code, &out, &stderr)
+	}
+	want := out.String()
+	if result := decodeRecord(t, want)["result"].(map[string]any); result["amount"] != "25000" || result["currency"] != "KRW" {
+		t.Fatalf("unexpected interest: %v", result)
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := Run(append(args, "-replay-audit", audit), strings.NewReader(""), &out, &stderr); code != 0 || out.String() != want {
+		t.Fatalf("replay: exit=%d, stdout=%s, stderr=%s, want=%s", code, &out, &stderr, want)
+	}
+}
+
 func interestRuleArgs(spec string) []string {
 	return []string{"-file", "../../examples/interest_rule_v1.fin", "-contract", spec, "-json"}
 }

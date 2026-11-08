@@ -1,0 +1,12 @@
+{
+  "schema_version": "2",
+  "rule": "group_transactions_v2",
+  "inputs": {
+    "transactions": [
+      {"id": "T001", "amount": {"currency": "KRW", "amount": "1000.25"}},
+      {"id": "T002", "amount": {"currency": "USD", "amount": "12.34"}},
+      {"id": "T003", "amount": {"currency": "KRW", "amount": "2499.75"}},
+      {"id": "T004", "amount": {"currency": "USD", "amount": "7.66"}}
+    ]
+  }
+}

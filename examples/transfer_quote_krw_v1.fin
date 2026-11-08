@@ -1,0 +1,14 @@
+rule transfer_quote_krw_v1 {
+    input transfer as record
+    output quote as record
+
+    step calculate_fee {
+        let fee = settle(transfer.amount * 0.05, 0, "HALF_EVEN");
+    }
+
+    step build_quote {
+        let quote = record { fee: fee, total_debit: transfer.amount + fee };
+    }
+
+    return quote
+}

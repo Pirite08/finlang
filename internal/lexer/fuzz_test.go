@@ -9,7 +9,7 @@ import (
 )
 
 func FuzzLexerNoPanic(f *testing.F) {
-	for _, source := range []string{"", strings.Repeat("1", 300), `"unterminated`, "\xff", `// 한글
+	for _, source := range []string{"", strings.Repeat("1", 300), `"unterminated`, "\xff", "var for in [[0.100], []][0]", "true&&false || !true", `// 한글
 let amount = 0.100;`, `"a\"\\\n\t"`} {
 		f.Add(source)
 	}

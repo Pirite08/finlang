@@ -3,6 +3,7 @@ package contract
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"strconv"
@@ -14,6 +15,10 @@ import (
 // readJSON bounds bytes before tokenization. UseNumber ensures that no JSON
 // token, including rejected numeric amounts, ever passes through float64.
 func readJSON(r io.Reader, limits config.Limits) (any, error) {
+	return readBoundedJSON(r, limits, 0)
+}
+
+func readBoundedJSON(r io.Reader, limits config.Limits, maxItems int) (any, error) {
 	if limits.MaxSourceBytes < 0 || limits.MaxSyntaxDepth < 1 {
 		return nil, fmt.Errorf("invalid JSON resource limits")
 	}
@@ -29,7 +34,7 @@ func readJSON(r io.Reader, limits config.Limits) (any, error) {
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
-	value, err := scanValue(d, 0, limits.MaxSyntaxDepth)
+	value, err := scanValue(d, 0, limits.MaxSyntaxDepth, maxItems)
 	if err != nil {
 		return nil, err
 	}
@@ -39,10 +44,15 @@ func readJSON(r io.Reader, limits config.Limits) (any, error) {
 		}
 		return nil, err
 	}
+	// Collection inputs are embedded verbatim in strict audit JSON. The
+	// legacy scanner accepts invalid surrogate escapes, so check Unicode too.
+	if maxItems > 0 && !jsontext.Value(data).IsValid(jsontext.AllowDuplicateNames(true)) {
+		return nil, fmt.Errorf("JSON string contains invalid Unicode escapes")
+	}
 	return value, nil
 }
 
-func scanValue(d *json.Decoder, depth, maxDepth int) (any, error) {
+func scanValue(d *json.Decoder, depth, maxDepth, maxItems int) (any, error) {
 	token, err := d.Token()
 	if err != nil {
 		return nil, err
@@ -58,6 +68,11 @@ func scanValue(d *json.Decoder, depth, maxDepth int) (any, error) {
 	case '{':
 		result := map[string]any{}
 		for d.More() {
+			// The input envelope has three fields and Money has two. The
+			// record-specific check also enforces smaller collection limits.
+			if maxItems > 0 && len(result) >= max(maxItems, 3) {
+				return nil, fmt.Errorf("JSON object exceeds collection item limit")
+			}
 			keyToken, err := d.Token()
 			if err != nil {
 				return nil, err
@@ -69,7 +84,7 @@ func scanValue(d *json.Decoder, depth, maxDepth int) (any, error) {
 			if _, exists := result[key]; exists {
 				return nil, fmt.Errorf("duplicate JSON key %q", key)
 			}
-			result[key], err = scanValue(d, depth+1, maxDepth)
+			result[key], err = scanValue(d, depth+1, maxDepth, maxItems)
 			if err != nil {
 				return nil, err
 			}
@@ -85,7 +100,10 @@ func scanValue(d *json.Decoder, depth, maxDepth int) (any, error) {
 	case '[':
 		result := []any{}
 		for d.More() {
-			value, err := scanValue(d, depth+1, maxDepth)
+			if maxItems > 0 && len(result) >= maxItems {
+				return nil, fmt.Errorf("JSON array exceeds collection item limit")
+			}
+			value, err := scanValue(d, depth+1, maxDepth, maxItems)
 			if err != nil {
 				return nil, err
 			}

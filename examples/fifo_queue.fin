@@ -1,0 +1,15 @@
+// enqueue는 값을 뒤에 붙인 새 큐를 반환합니다.
+var tasks = queue();
+tasks = tasks.enqueue("T001");
+tasks = enqueue(tasks, "T002");
+
+// dequeue는 맨 앞 값과 남은 큐를 레코드로 돌려줍니다.
+let first = tasks.dequeue();
+tasks = first.queue.enqueue("T003");
+let second = dequeue(tasks);
+let third = second.queue.dequeue();
+
+print(first.value);
+print(second.value);
+print(third.value);
+print(third.queue.len());

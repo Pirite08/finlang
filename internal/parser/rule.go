@@ -103,8 +103,12 @@ func (p *parser) inputDecl() ast.InputDecl {
 	p.expect(token.Identifier)
 	if p.isWord("as") {
 		p.advance()
-		p.expectWord("decimal")
-		decl.Type = "decimal"
+		if p.isWord("decimal") || p.isWord("list") || p.isWord("record") {
+			decl.Type = p.current.Literal
+			p.advance()
+		} else {
+			p.fail("E_SYNTAX", `expected "decimal", "list", or "record"`, p.current.Span)
+		}
 	} else {
 		decl.Currency = p.declaredCurrency()
 	}
@@ -113,13 +117,23 @@ func (p *parser) inputDecl() ast.InputDecl {
 	return decl
 }
 
-func (p *parser) outputDecl() ast.MoneyDecl {
+func (p *parser) outputDecl() ast.OutputDecl {
 	start := p.current.Span
 	p.expectWord("output")
-	name := p.current.Literal
+	decl := ast.OutputDecl{Name: p.current.Literal}
 	p.expect(token.Identifier)
-	currency := p.declaredCurrency()
-	decl := ast.MoneyDecl{Span: p.span(start), Name: name, Currency: currency}
+	if p.isWord("as") {
+		p.advance()
+		if p.isWord("map") || p.isWord("record") {
+			decl.Type = p.current.Literal
+			p.advance()
+		} else {
+			p.fail("E_SYNTAX", `expected "map" or "record"`, p.current.Span)
+		}
+	} else {
+		decl.Currency = p.declaredCurrency()
+	}
+	decl.Span = p.span(start)
 	p.optionalSemicolon()
 	return decl
 }

@@ -10,6 +10,17 @@ type Limits struct {
 	MaxEvalSteps         int    `json:"max_eval_steps"`
 	MaxCallDepth         int    `json:"max_call_depth"`
 	MaxTraceEvents       int    `json:"max_trace_events"`
+	MaxCollectionItems   int    `json:"max_collection_items,omitempty"`
+}
+
+const MaxRuleCollectionItems = 1024
+
+// RuleCollectionLimits enables the per-collection cap for the collection rule profile.
+func RuleCollectionLimits(limits Limits) Limits {
+	if limits.MaxCollectionItems <= 0 || limits.MaxCollectionItems > MaxRuleCollectionItems {
+		limits.MaxCollectionItems = MaxRuleCollectionItems
+	}
+	return limits
 }
 
 func DefaultLimits() Limits {

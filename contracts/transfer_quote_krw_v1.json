@@ -1,0 +1,24 @@
+{
+  "schema_version": "3",
+  "rule": "transfer_quote_krw_v1",
+  "entry": "transfer_quote_krw_v1",
+  "parameters": [
+    {
+      "name": "transfer",
+      "type": "record",
+      "fields": [
+        {"name": "request_id", "type": "string", "max_bytes": 64},
+        {"name": "from_account", "type": "string", "max_bytes": 64},
+        {"name": "to_account", "type": "string", "max_bytes": 64},
+        {"name": "amount", "type": "money", "currencies": ["KRW"], "min": "1", "max": "8784163844623596007", "scale_max": 0}
+      ]
+    }
+  ],
+  "output": {
+    "type": "record",
+    "fields": [
+      {"name": "fee", "type": "money", "currencies": ["KRW"], "min": "0", "max": "9223372036854775807", "scale": 0},
+      {"name": "total_debit", "type": "money", "currencies": ["KRW"], "min": "1", "max": "9223372036854775807", "scale": 0}
+    ]
+  }
+}

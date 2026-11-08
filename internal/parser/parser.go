@@ -146,17 +146,14 @@ func (p *parser) statement() ast.Stmt {
 		p.record(n, condition)
 		return n
 	}
+	if p.current.Kind == token.Identifier {
+		if statement := p.identifierStatement(); statement != nil {
+			return statement
+		}
+	}
 	switch p.current.Kind {
 	case token.Let:
-		p.advance()
-		name := p.current.Literal
-		p.expect(token.Identifier)
-		p.expect(token.Assign)
-		value := p.expression(0)
-		p.terminator()
-		n := &ast.Let{Span: p.span(start), Name: name, Value: value}
-		p.record(n, value)
-		return n
+		return p.binding(false)
 	case token.Return:
 		if p.inStep {
 			p.fail("E_SYNTAX", "return belongs after the final step", start)
@@ -164,10 +161,7 @@ func (p *parser) statement() ast.Stmt {
 		}
 		return p.returnStatement()
 	case token.If:
-		p.advance()
-		p.expect(token.LParen)
-		condition := p.expression(0)
-		p.expect(token.RParen)
+		condition := p.ifCondition()
 		consequence := p.block()
 		var alternative *ast.Block
 		if p.current.Kind == token.Else {
@@ -192,6 +186,76 @@ func (p *parser) statement() ast.Stmt {
 		return n
 	}
 }
+
+func (p *parser) identifierStatement() ast.Stmt {
+	lookahead := *p.lexer
+	next, err := lookahead.Next()
+	if err != nil {
+		return nil
+	}
+	if next.Kind == token.Assign {
+		start := p.current.Span
+		name := p.current.Literal
+		p.advance()
+		p.expect(token.Assign)
+		value := p.expression(0)
+		p.terminator()
+		n := &ast.Assign{Span: p.span(start), Name: name, Value: value}
+		p.record(n, value)
+		return n
+	}
+	// In a rule step, a newline can separate two existing identifier statements.
+	if next.Kind != token.Identifier || (p.inStep && next.Span.Line != p.current.Span.Line) {
+		return nil
+	}
+	switch p.current.Literal {
+	case "var":
+		afterName, err := lookahead.Next()
+		if err == nil && afterName.Kind == token.Assign {
+			return p.binding(true)
+		}
+	case "for":
+		afterName, err := lookahead.Next()
+		if err == nil && afterName.Kind == token.Identifier && afterName.Literal == "in" {
+			return p.forStatement()
+		}
+	}
+	return nil
+}
+
+func (p *parser) binding(mutable bool) ast.Stmt {
+	start := p.current.Span
+	p.advance()
+	name := p.current.Literal
+	p.expect(token.Identifier)
+	p.expect(token.Assign)
+	value := p.expression(0)
+	p.terminator()
+	span := p.span(start)
+	var n ast.Stmt
+	if mutable {
+		n = &ast.Var{Span: span, Name: name, Value: value}
+	} else {
+		n = &ast.Let{Span: span, Name: name, Value: value}
+	}
+	p.record(n, value)
+	return n
+}
+
+func (p *parser) forStatement() ast.Stmt {
+	start := p.current.Span
+	p.advance()
+	name := p.current.Literal
+	p.expect(token.Identifier)
+	p.expectWord("in")
+	iterable := p.expressionContext(0, true)
+	body := p.block()
+	n := &ast.For{Span: p.span(start), Name: name, Iterable: iterable, Body: body}
+	p.record(n, iterable, body)
+	p.optionalSemicolon()
+	return n
+}
+
 func (p *parser) returnStatement() *ast.Return {
 	start := p.current.Span
 	p.expect(token.Return)
@@ -222,22 +286,33 @@ func (p *parser) block() *ast.Block {
 	p.record(n, children...)
 	return n
 }
+
+const prefixPrecedence = 7
+
 func precedence(kind token.Kind) int {
 	switch kind {
-	case token.Equal, token.NotEqual:
+	case token.Or:
 		return 1
-	case token.Less, token.LessEqual, token.Greater, token.GreaterEqual:
+	case token.And:
 		return 2
-	case token.Plus, token.Minus:
+	case token.Equal, token.NotEqual:
 		return 3
-	case token.Star:
+	case token.Less, token.LessEqual, token.Greater, token.GreaterEqual:
 		return 4
-	case token.LParen:
+	case token.Plus, token.Minus:
+		return 5
+	case token.Star:
 		return 6
+	case token.LParen, token.LBracket, token.Dot:
+		return 8
 	}
 	return 0
 }
 func (p *parser) expression(min int) ast.Expr {
+	return p.expressionContext(min, false)
+}
+
+func (p *parser) expressionContext(min int, beforeBlock bool) ast.Expr {
 	if p.err != nil {
 		return nil
 	}
@@ -262,12 +337,17 @@ func (p *parser) expression(min int) ast.Expr {
 		p.advance()
 		p.record(left)
 	case token.Identifier:
-		left = &ast.Identifier{Span: tok.Span, Name: tok.Literal}
 		p.advance()
-		p.record(left)
+		isNamedLiteral := tok.Literal == "record" || tok.Literal == "map"
+		if isNamedLiteral && p.current.Kind == token.LBrace && (!beforeBlock || p.literalBeforeBlock(tok.Literal)) {
+			left = p.namedLiteral(tok)
+		} else {
+			left = &ast.Identifier{Span: tok.Span, Name: tok.Literal}
+			p.record(left)
+		}
 	case token.Minus, token.Bang:
 		p.advance()
-		right := p.expression(5)
+		right := p.expressionContext(prefixPrecedence, beforeBlock)
 		left = &ast.Prefix{Span: p.span(start), Operator: tok.Literal, Right: right}
 		p.record(left, right)
 	case token.LParen:
@@ -276,25 +356,159 @@ func (p *parser) expression(min int) ast.Expr {
 		p.expect(token.RParen)
 	case token.Fn:
 		left = p.function()
+	case token.LBracket:
+		left = p.list()
+	case token.If:
+		left = p.ifExpression()
 	default:
 		p.fail("E_SYNTAX", "expected expression", tok.Span)
 		return nil
 	}
 	for p.err == nil && precedence(p.current.Kind) > min {
-		if p.current.Kind == token.LParen {
+		switch p.current.Kind {
+		case token.LParen:
 			left = p.call(left)
+			continue
+		case token.LBracket:
+			left = p.index(left)
+			continue
+		case token.Dot:
+			left = p.member(left)
 			continue
 		}
 		op := p.current
 		power := precedence(op.Kind)
 		p.advance()
-		right := p.expression(power)
+		right := p.expressionContext(power, beforeBlock)
 		n := &ast.Infix{Span: p.span(start), Left: left, Operator: op.Literal, Right: right}
 		p.record(n, left, right)
 		left = n
 	}
 	return left
 }
+
+func (p *parser) ifCondition() ast.Expr {
+	p.expect(token.If)
+	p.expect(token.LParen)
+	condition := p.expression(0)
+	p.expect(token.RParen)
+	return condition
+}
+
+func (p *parser) ifExpression() ast.Expr {
+	start := p.current.Span
+	condition := p.ifCondition()
+	consequence := p.valueBranch()
+	p.expect(token.Else)
+	alternative := p.valueBranch()
+	node := &ast.IfExpr{Span: p.span(start), Condition: condition, Consequence: consequence, Alternative: alternative}
+	p.record(node, condition, consequence, alternative)
+	return node
+}
+
+func (p *parser) valueBranch() ast.Expr {
+	p.expect(token.LBrace)
+	value := p.expression(0)
+	p.optionalSemicolon()
+	p.expect(token.RBrace)
+	return value
+}
+
+func (p *parser) list() ast.Expr {
+	start := p.current.Span
+	p.expect(token.LBracket)
+	n := &ast.List{}
+	children := []ast.Node{}
+	for p.err == nil && p.current.Kind != token.RBracket {
+		element := p.expression(0)
+		n.Elements = append(n.Elements, element)
+		children = append(children, element)
+		if p.current.Kind != token.Comma {
+			break
+		}
+		p.advance()
+	}
+	p.expect(token.RBracket)
+	n.Span = p.span(start)
+	p.record(n, children...)
+	return n
+}
+
+func (p *parser) index(collection ast.Expr) ast.Expr {
+	start := collection.GetSpan()
+	p.expect(token.LBracket)
+	index := p.expression(0)
+	p.expect(token.RBracket)
+	n := &ast.Index{Span: p.span(start), Collection: collection, Index: index}
+	p.record(n, collection, index)
+	return n
+}
+
+// After a for iterable, a brace can belong to the loop body. A key
+// followed by a colon identifies a literal. An empty literal must be
+// followed by the body or a dot, or be wrapped in parentheses.
+func (p *parser) literalBeforeBlock(name string) bool {
+	lookahead := *p.lexer
+	first, err := lookahead.Next()
+	if err != nil {
+		return false
+	}
+	second, err := lookahead.Next()
+	if err != nil {
+		return false
+	}
+	if first.Kind == token.RBrace {
+		return second.Kind == token.LBrace || second.Kind == token.Dot
+	}
+	return first.Kind == fieldKeyKind(name) && second.Kind == token.Colon
+}
+
+func fieldKeyKind(name string) token.Kind {
+	if name == "map" {
+		return token.String
+	}
+	return token.Identifier
+}
+
+func (p *parser) namedLiteral(start token.Token) ast.Expr {
+	p.expect(token.LBrace)
+	keyKind := fieldKeyKind(start.Literal)
+	var fields []ast.NamedField
+	var children []ast.Node
+	for p.err == nil && p.current.Kind != token.RBrace {
+		key := p.current
+		p.expect(keyKind)
+		p.expect(token.Colon)
+		value := p.expression(0)
+		fields = append(fields, ast.NamedField{Span: key.Span, Name: key.Literal, Value: value})
+		children = append(children, value)
+		if p.current.Kind != token.Comma {
+			break
+		}
+		p.advance()
+	}
+	p.expect(token.RBrace)
+	span := p.span(start.Span)
+	var literal ast.Expr
+	if keyKind == token.String {
+		literal = &ast.Map{Span: span, Entries: fields}
+	} else {
+		literal = &ast.Record{Span: span, Fields: fields}
+	}
+	p.record(literal, children...)
+	return literal
+}
+
+func (p *parser) member(receiver ast.Expr) ast.Expr {
+	start := receiver.GetSpan()
+	p.expect(token.Dot)
+	name := p.current.Literal
+	p.expect(token.Identifier)
+	member := &ast.Member{Span: p.span(start), Receiver: receiver, Name: name}
+	p.record(member, receiver)
+	return member
+}
+
 func (p *parser) function() ast.Expr {
 	start := p.current.Span
 	p.advance()

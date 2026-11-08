@@ -1,0 +1,19 @@
+rule group_transactions_v2 {
+    input transactions as list
+    output totals as map
+
+    step initialize {
+        var totals = map {};
+    }
+
+    step aggregate {
+        // 환산 없이 거래의 원래 통화별로 합계를 구합니다.
+        for transaction in transactions {
+            let code = currency(transaction.amount);
+            let previous = if (totals.has(code)) { totals[code] } else { money(code, 0) };
+            totals = totals.with(code, previous + transaction.amount);
+        }
+    }
+
+    return totals
+}

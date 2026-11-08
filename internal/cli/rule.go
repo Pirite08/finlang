@@ -14,6 +14,7 @@ import (
 )
 
 const ruleOnlyProfile = "rule-only-v1"
+const ruleCollectionProfile = "rule-only-v2"
 
 func (c command) hasFXSource() bool {
 	return c.fxFixed != "" || c.fxSnapshot != "" || c.fxURL != "" || c.fxProvider != ""
@@ -95,6 +96,18 @@ func (c command) loadSuppliedQuotes(limits config.Limits) (*fx.Snapshot, error) 
 
 // ruleArguments matches the decoded contract values to the named declarations.
 func ruleArguments(rule *ast.Rule, spec contract.Spec, args []eval.Value) ([]eval.Value, error) {
+	order, err := ruleInputOrder(rule, spec)
+	if err != nil {
+		return nil, err
+	}
+	ordered := make([]eval.Value, len(order))
+	for i, index := range order {
+		ordered[i] = args[index]
+	}
+	return ordered, nil
+}
+
+func ruleInputOrder(rule *ast.Rule, spec contract.Spec) ([]int, error) {
 	if spec.Entry != rule.Name {
 		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT_ENTRY", "contract entry must name the declared rule"), rule.Span)
 	}
@@ -105,17 +118,21 @@ func ruleArguments(rule *ast.Rule, spec contract.Spec, args []eval.Value) ([]eva
 	for i, parameter := range spec.Parameters {
 		positions[parameter.Name] = i
 	}
-	ordered := make([]eval.Value, 0, len(rule.Inputs))
+	order := make([]int, 0, len(rule.Inputs))
 	for _, input := range rule.Inputs {
 		index, ok := positions[input.Name]
 		if !ok || spec.Parameters[index].Type != input.Type || spec.Parameters[index].Currency != input.Currency {
 			message := fmt.Sprintf("contract parameter must match the name, type and currency of rule input %q", input.Name)
 			return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", message), input.Span)
 		}
-		ordered = append(ordered, args[index])
+		order = append(order, index)
 	}
-	if spec.Output.Type != "money" || spec.Output.Currency != rule.Output.Currency {
-		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract output currency must match the rule output declaration"), rule.Output.Span)
+	outputType := rule.Output.Type
+	if outputType == "" {
+		outputType = "money"
 	}
-	return ordered, nil
+	if spec.Output.Type != outputType || spec.Output.Currency != rule.Output.Currency {
+		return nil, diagnostic.WithSpan(diagnostic.New("E_CONTRACT", "contract output type and currency must match the rule output declaration"), rule.Output.Span)
+	}
+	return order, nil
 }

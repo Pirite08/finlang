@@ -1,0 +1,13 @@
+rule transfer_fee_krw_v1 {
+    input amount in "KRW"
+    output fee in "KRW"
+
+    step calculate {
+        let raw_fee = amount * 0.05;
+    }
+    step settle_fee {
+        let fee = settle(raw_fee, 0, "HALF_EVEN");
+    }
+
+    return fee
+}
